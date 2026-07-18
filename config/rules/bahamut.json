@@ -1,0 +1,13 @@
+{
+  "id": "bahamut",
+  "name": "🎮 巴哈姆特",
+  "type": "select",
+  "proxyStrategy": "international",
+  "rules": [
+    "DOMAIN-SUFFIX,bahamut.akamaized.net",
+    "DOMAIN-SUFFIX,bahamut.com.tw",
+    "DOMAIN-SUFFIX,gamer.com.tw",
+    "DOMAIN,gamer2-cds.cdn.hinet.net",
+    "DOMAIN,gamer-cds.cdn.hinet.net"
+  ]
+}

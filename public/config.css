@@ -1,0 +1,115 @@
+/* ===== 基础 ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+.container { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+h1 { font-size: 22px; margin-bottom: 20px; }
+h2 { font-size: 15px; margin-bottom: 10px; color: #555; }
+h3 { font-size: 14px; margin-bottom: 6px; }
+.card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+
+/* ===== 按钮 ===== */
+.btn { padding: 9px 18px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; transition: all .2s; }
+.btn-primary { background: #4a90d9; color: #fff; }
+.btn-primary:hover { background: #3a7bc8; }
+.btn-primary:disabled { background: #a0c4e8; cursor: not-allowed; }
+.btn-success { background: #52c41a; color: #fff; }
+.btn-success:hover { background: #45a817; }
+.btn-convert { background: #4a90d9; color: #fff; }
+.btn-convert:hover { background: #3a7bc8; }
+.btn-download { background: #52c41a; color: #fff; }
+.btn-download:hover { background: #45a817; }
+.btn-danger { background: #ff4d4f; color: #fff; }
+.btn-danger:hover { background: #e04345; }
+.btn-sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; }
+.btn-outline { background: transparent; border: 1px solid #d9d9d9; color: #666; }
+.btn-outline:hover { border-color: #4a90d9; color: #4a90d9; }
+
+/* ===== 状态提示 ===== */
+.status { padding: 10px 14px; border-radius: 8px; margin-top: 10px; font-size: 13px; display: none; }
+.status-ok { background: #f6ffed; border: 1px solid #b7eb8f; color: #52c41a; display: block; }
+.status-err { background: #fff2f0; border: 1px solid #ffccc7; color: #ff4d4f; display: block; }
+.status-loading { background: #e6f7ff; border: 1px solid #91d5ff; color: #1890ff; display: block; }
+
+/* ===== 分段按钮 ===== */
+.segmented { display: inline-flex; border: 1px solid #d9d9d9; border-radius: 8px; overflow: hidden; }
+.seg-btn { padding: 8px 16px; font-size: 13px; border: none; background: #fff; color: #666; cursor: pointer; transition: all .2s; border-right: 1px solid #d9d9d9; white-space: nowrap; }
+.seg-btn:last-child { border-right: none; }
+.seg-btn:hover { color: #4a90d9; }
+.seg-btn.active { background: #4a90d9; color: #fff; }
+
+/* ===== URL 输入 ===== */
+.url-textarea { width: 100%; padding: 10px 14px; border: 1px solid #d9d9d9; border-radius: 8px; font-size: 14px; font-family: 'Fira Code', 'Consolas', monospace; line-height: 1.6; outline: none; resize: vertical; transition: border .2s; }
+.url-textarea:focus { border-color: #4a90d9; }
+.source-actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
+
+/* ===== 文件上传 ===== */
+.file-drop-zone { border: 2px dashed #d9d9d9; border-radius: 10px; padding: 32px 16px; text-align: center; cursor: pointer; transition: all .2s; display: none; }
+.file-drop-zone.show { display: block; }
+.file-drop-zone:hover, .file-drop-zone.drag-over { border-color: #4a90d9; background: #f0f7ff; }
+.file-drop-zone .file-icon { font-size: 36px; margin-bottom: 8px; }
+.file-drop-zone .file-hint { font-size: 13px; color: #999; }
+.file-drop-zone .file-hint strong { color: #4a90d9; }
+.file-input-hidden { display: none; }
+
+/* ===== 关键词 ===== */
+.kw-input-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.kw-input-row input { flex: 1; padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 8px; font-size: 13px; outline: none; }
+.kw-input-row input:focus { border-color: #4a90d9; }
+.kw-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; min-height: 28px; }
+.kw-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: #f0f5ff; color: #4a90d9; border: 1px solid #adc6ff; border-radius: 14px; font-size: 12px; }
+.kw-tag .kw-remove { cursor: pointer; font-size: 14px; line-height: 1; opacity: 0.5; }
+.kw-tag .kw-remove:hover { opacity: 1; color: #ff4d4f; }
+.kw-hint { font-size: 12px; color: #999; margin-bottom: 8px; }
+.kw-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.kw-preset { padding: 3px 10px; background: #fafafa; border: 1px solid #e8e8e8; border-radius: 12px; font-size: 12px; color: #333; cursor: pointer; transition: all .2s; }
+.kw-preset:hover { border-color: #4a90d9; color: #4a90d9; background: #f0f7ff; }
+.kw-preset.used { opacity: 0.3; pointer-events: none; }
+
+/* ===== 转换结果 ===== */
+.result-summary { font-size: 13px; color: #666; margin-bottom: 14px; padding: 10px 14px; background: #f6ffed; border: 1px solid #b7eb8f; border-radius: 8px; }
+.result-group-card { border: 1px solid #e8e8e8; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; background: #fafafa; }
+.result-group-header { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.result-group-header:hover { color: #4a90d9; }
+.result-group-name { font-size: 14px; font-weight: 600; }
+.result-group-type { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #e6f7ff; color: #1890ff; }
+.result-group-system { background: #fff7e6; color: #d46b08; border: 1px solid #ffd591; }
+.result-group-arrow { font-size: 12px; color: #bbb; transition: transform .2s; }
+.result-group-arrow.open { transform: rotate(90deg); }
+.result-group-nodes { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+.result-group-nodes.show { display: flex; flex-wrap: wrap; gap: 6px; }
+.result-node-tag { padding: 3px 10px; background: #f5f5f5; border-radius: 12px; font-size: 12px; color: #555; }
+.result-node-default { background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; font-weight: 600; }
+
+/* ===== 分组配置 ===== */
+.group-card { border: 1px solid #e8e8e8; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; background: #fafafa; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.group-card.disabled { opacity: 0.45; }
+.group-name { font-size: 14px; font-weight: 600; min-width: 100px; }
+.group-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.badge-must { background: #fff7e6; color: #d46b08; border: 1px solid #ffd591; }
+.badge-rule { background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; }
+.badge-builtin { background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; }
+.badge-system { background: #fff7e6; color: #d46b08; border: 1px solid #ffd591; }
+.group-card-system { background: #fffdf7; border-style: dashed; }
+.group-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #999; cursor: pointer; user-select: none; }
+.group-toggle input { display: none; }
+.group-switch { width: 36px; height: 20px; background: #52c41a; border-radius: 10px; position: relative; transition: background .2s; }
+.group-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform .2s; }
+.group-toggle input:checked + .group-switch { background: #d9d9d9; }
+.group-toggle input:checked + .group-switch::after { transform: translateX(16px); }
+.group-toggle input:checked ~ .toggle-label { color: #bbb; }
+.group-select { padding: 6px 10px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 13px; background: #fff; outline: none; }
+.group-select:focus { border-color: #4a90d9; }
+.empty-hint { color: #bbb; font-size: 13px; padding: 24px; text-align: center; }
+
+/* ===== Tab 导航 ===== */
+.tab-nav { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid #e8e8e8; }
+.tab-btn { padding: 10px 24px; font-size: 14px; border: none; background: transparent; color: #999; cursor: pointer; transition: all .2s; position: relative; bottom: -2px; border-bottom: 2px solid transparent; }
+.tab-btn:hover { color: #4a90d9; }
+.tab-btn.active { color: #4a90d9; border-bottom-color: #4a90d9; font-weight: 600; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ===== 保存栏 / 下载栏（置顶） ===== */
+.card-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 12px 18px; background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+.bar-desc { font-size: 14px; color: #333; font-weight: 600; flex: 1; }
+.save-status { font-size: 13px; margin-bottom: 16px; padding: 0 4px; }

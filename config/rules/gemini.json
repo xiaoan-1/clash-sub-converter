@@ -1,0 +1,13 @@
+{
+  "id": "gemini",
+  "name": "🤖 Gemini",
+  "type": "select",
+  "rules": [
+    "DOMAIN-SUFFIX,ai.google",
+    "DOMAIN-SUFFIX,bard.google.com",
+    "DOMAIN-SUFFIX,gemini.google.com",
+    "DOMAIN-SUFFIX,googleapis.com",
+    "DOMAIN-SUFFIX,deepmind.com",
+    "DOMAIN-SUFFIX,deepmind.google"
+  ]
+}

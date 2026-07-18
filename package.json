@@ -1,0 +1,18 @@
+{
+  "name": "clash-sub-converter",
+  "version": "1.0.0",
+  "description": "Clash 订阅转换工具 - 增强分组和规则",
+  "main": "index.js",
+  "scripts": {
+    "start": "pm2 start ecosystem.config.js",
+    "stop": "pm2 stop clash-sub-converter",
+    "restart": "pm2 restart clash-sub-converter",
+    "logs": "pm2 logs clash-sub-converter",
+    "status": "pm2 status",
+    "delete": "pm2 delete clash-sub-converter"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "express": "^4.18.2"
+  }
+}
