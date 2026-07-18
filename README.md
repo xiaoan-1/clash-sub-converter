@@ -22,21 +22,26 @@
 - Node.js ≥ 18
 - npm ≥ 9
 
-### 安装
+### 部署安装
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/xiaoan-1/clash-sub-converter.git
+
 cd clash-sub-converter
+
 npm install
 ```
 
-### 启动
+### 进程管理
 
 ```bash
-npm start
+npm start        # 启动
+npm run restart  # 重启
+npm run stop     # 停止
+npm run logs     # 查看日志
+npm run status   # 状态
 ```
 
-服务运行在 `http://127.0.0.1:25500`。浏览器访问 `/config` 进入配置页面。
 
 ### 开发模式
 
@@ -89,17 +94,17 @@ clash-sub-converter/
 │   ├── config.css             # 配置页样式
 │   └── config.js              # 配置页逻辑
 └── docs/
-    ├── API.md                 # API 接口文档
-    ├── 主流程详解.md
-    ├── 数据流通路径.md
-    ├── 协议解析输出.md
-    ├── 格式说明.md
-    └── 配置组装过程.md
+    ├── 接口文档.md            # API 接口文档
+    ├── 主流程详解.md           # 端到端流程详解
+    ├── 数据流架构.md           # 完整数据流图
+    ├── 代理协议解析.md         # 各协议解析结果结构
+    ├── 配置文件格式说明.md     # 输入输出格式规范
+    └── 配置组装详解.md         # converter.js 内部细节
 ```
 
 ## API 接口
 
-完整 API 文档见 [docs/API.md](docs/API.md)，核心端点：
+完整 API 文档见 [docs/接口文档.md](docs/接口文档.md)，核心端点：
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
@@ -190,28 +195,3 @@ node index.js 订阅文件.yaml
 2. OpenClash → 全局设置 → 订阅转换
 3. 订阅转换服务地址填入：`http://你的IP:25500/sub?target=clash&url=`
 4. 原始订阅链接会自动拼接
-
-## 环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `PORT` | 服务端口 | `25500` |
-
-## PM2 管理
-
-```bash
-npm start        # 启动
-npm run restart  # 重启
-npm run stop     # 停止
-npm run logs     # 查看日志
-npm run status   # 状态
-```
-
-## 依赖
-
-- [express](https://expressjs.com/) — HTTP 框架
-- [js-yaml](https://github.com/nodeca/js-yaml) — YAML 序列化
-
-## License
-
-MIT
