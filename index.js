@@ -115,6 +115,16 @@ app.get('/sub', async (req, res) => {
 const args = process.argv.slice(2);
 const isServer = args.includes('--server') || args.includes('-s');
 
+// 首次启动：拷贝默认配置文件
+const configDir = path.join(__dirname, 'config');
+const configPath = path.join(configDir, 'config.json');
+const defaultConfigPath = path.join(configDir, 'default.json');
+if (!fs.existsSync(configPath) && fs.existsSync(defaultConfigPath)) {
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.copyFileSync(defaultConfigPath, configPath);
+  console.log('[init] 已创建 config/config.json（从 default.json 拷贝）');
+}
+
 if (isServer) {
   app.listen(PORT, () => {
     const localIP = getLocalIP();

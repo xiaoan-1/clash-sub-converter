@@ -9,13 +9,18 @@ const { convertToClash } = require('./converter');
 
 const router = express.Router();
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.json');
+const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'config', 'default.json');
 
 // ===================== 工具函数 =====================
 
 function readConfig() {
   try {
+    // 优先读用户配置，缺失时回退到默认配置
     if (fs.existsSync(CONFIG_PATH)) {
       return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    }
+    if (fs.existsSync(DEFAULT_CONFIG_PATH)) {
+      return JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
     }
   } catch { /* ignore */ }
   return { subscriptions: [], groups: [] };
@@ -23,61 +28,6 @@ function readConfig() {
 
 function writeConfig(config) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
-}
-
-/**
- * 生成默认的用户分组配置（包含所有类型）
- */
-function getDefaultGroupsConfig() {
-  const groups = [];
-
-  // 必须分组 - 节点选择（不可禁用）
-  groups.push({
-    builtin: 'select',
-    name: '🚀 节点选择',
-    type: 'select',
-    defaultProxy: '♻️ 自动选择',
-  });
-
-  // 必须分组 - 自动选择（不可禁用）
-  groups.push({
-    builtin: 'auto',
-    name: '♻️ 自动选择',
-    type: 'url-test',
-    defaultProxy: '♻️ 自动选择',
-  });
-
-  // 可选内置分组 - 国内直连
-  groups.push({
-    builtin: 'domestic',
-    name: '🇨🇳 中国大陆',
-    type: 'select',
-    enabled: true,
-    defaultProxy: 'DIRECT',
-  });
-
-  // 规则分组（从 ruleManager 生成）
-  const directDefaultIds = { apple: true, microsoft: true };
-  for (const r of ruleManager.getAll()) {
-    if (r.id === 'common') continue;
-    groups.push({
-      ruleId: r.id,
-      name: r.name,
-      type: r.type || 'select',
-      enabled: true,
-      defaultProxy: directDefaultIds[r.id] ? 'DIRECT' : '♻️ 自动选择',
-    });
-  }
-
-  // 必须分组 - 漏网之鱼（不可禁用）
-  groups.push({
-    builtin: 'fallback',
-    name: '🐟 漏网之鱼',
-    type: 'select',
-    defaultProxy: '🚀 节点选择',
-  });
-
-  return groups;
 }
 
 // ===================== 订阅解析 =====================
@@ -195,27 +145,10 @@ router.post('/convert', async (req, res) => {
 
 /**
  * GET /api/config
- * 返回当前用户配置（如果没有则返回默认配置）
+ * 返回当前用户配置（回退到 default.json）
  */
 router.get('/config', (req, res) => {
-  const config = readConfig();
-  // 如果没有分组配置，用规则文件生成默认的
-  if (!config.groups || config.groups.length === 0) {
-    config.groups = getDefaultGroupsConfig();
-  }
-  // 确保 nodeFilters 有默认值（默认隐藏国内）
-  if (!config.nodeFilters) {
-    config.nodeFilters = { hideDomestic: true, hideInternational: false };
-  }
-  // 确保 excludeKeywords 有默认值（默认全选）
-  if (!Array.isArray(config.excludeKeywords) || config.excludeKeywords.length === 0) {
-    config.excludeKeywords = [
-      '流量', '官网', '套餐', '到期', '剩余', '应急', '免费', '测试',
-      '失效', '过期', '活动', '优惠', '推荐', '广告', '回国', '禁止',
-      'ipv6', '中转', '隧道', '倍率', '专线', '-----'
-    ];
-  }
-  res.json(config);
+  res.json(readConfig());
 });
 
 /**

@@ -10,14 +10,18 @@ const DEFAULT_DNS = JSON.parse(fs.readFileSync(dnsPath, 'utf8'));
 
 // 用户配置路径
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.json');
+const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'config', 'default.json');
 
 /**
- * 读取用户配置
+ * 读取用户配置（缺失时回退到 default.json）
  */
 function readUserConfig() {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    }
+    if (fs.existsSync(DEFAULT_CONFIG_PATH)) {
+      return JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
     }
   } catch { /* ignore */ }
   return null;

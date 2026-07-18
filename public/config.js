@@ -316,7 +316,7 @@ function renderGroups() {
       : g.builtin ? '<span class="group-badge badge-builtin">内置</span>'
       : '<span class="group-badge badge-rule">规则</span>';
 
-    var proxyOptions = ['DIRECT', '♻️ 自动选择'].concat(activeNames);
+    var proxyOptions = ['🚀 节点选择', '♻️ 自动选择', 'DIRECT'].concat(activeNames);
 
     html += '<div class="group-card' + (enabled ? '' : ' disabled') + '">'
       + '<span class="group-name">' + esc(g.name) + '</span>'

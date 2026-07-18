@@ -110,18 +110,23 @@ function generateProxyGroups(proxies, options = {}) {
   }
 
   // 4. 规则分组（可选，默认开）
-  //    每个规则分组 = DIRECT + ♻️ 自动选择 + 所有活跃节点
+  //    每个规则分组 = defaultProxy 排头 + 其余两个固定选项(节点选择/自动选择/DIRECT 三选二) + 所有活跃节点
+  //    Clash 以 proxies 列表的第一个为默认出口
+  const fixedOptions = ['🚀 节点选择', '♻️ 自动选择', 'DIRECT'];
   for (const rc of ruleManager.getAll()) {
     if (rc.id === 'common') continue;
 
     const ruleCfg = ruleMap.get(rc.id);
     if (ruleCfg && ruleCfg.enabled === false) continue;
 
+    const defProxy = ruleCfg?.defaultProxy || '♻️ 自动选择';
+    const otherOptions = fixedOptions.filter(o => o !== defProxy);
+
     groups.push({
       name: ruleCfg?.name || rc.name,
       type: ruleCfg?.type || rc.type || 'select',
-      proxies: ['DIRECT', '♻️ 自动选择', ...activeProxies],
-      defaultProxy: ruleCfg?.defaultProxy
+      proxies: [defProxy, ...otherOptions, ...activeProxies],
+      defaultProxy: defProxy
     });
   }
 
