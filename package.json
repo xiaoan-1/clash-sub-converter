@@ -4,6 +4,7 @@
   "description": "Clash 订阅转换工具 - 增强分组和规则",
   "main": "index.js",
   "scripts": {
+    "dev": "node index.js",
     "start": "pm2 start ecosystem.config.js",
     "stop": "pm2 stop clash-sub-converter",
     "restart": "pm2 restart clash-sub-converter",

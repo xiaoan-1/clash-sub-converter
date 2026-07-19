@@ -27,6 +27,8 @@
     { "ruleId": "openai",     "name": "🤖 OpenAI",       "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
     { "ruleId": "telegram",   "name": "💬 Telegram",     "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
     { "ruleId": "youtube",    "name": "📺 YouTube",      "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
+    { "ruleId": "pixiv",      "name": "🎨 Pixiv",        "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
+    { "ruleId": "steam",      "name": "🎮 Steam",        "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
     { "builtin": "fallback",  "name": "🐟 漏网之鱼",   "type": "select",   "defaultProxy": "🚀 节点选择" }
   ]
 }

@@ -1,5 +1,4 @@
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
 const { parseSubscription } = require('./src/parser');
 const { convertToClash, convertToSurge } = require('./src/converter');
@@ -112,54 +111,12 @@ app.get('/sub', async (req, res) => {
 
 // ===================== 启动 =====================
 
-const args = process.argv.slice(2);
-const isServer = args.includes('--server') || args.includes('-s');
-
-// 首次启动：拷贝默认配置文件
-const configDir = path.join(__dirname, 'config');
-const configPath = path.join(configDir, 'config.json');
-const defaultConfigPath = path.join(configDir, 'default.json');
-if (!fs.existsSync(configPath) && fs.existsSync(defaultConfigPath)) {
-  fs.mkdirSync(configDir, { recursive: true });
-  fs.copyFileSync(defaultConfigPath, configPath);
-  console.log('[init] 已创建 config/config.json（从 default.json 拷贝）');
-}
-
-if (isServer) {
-  app.listen(PORT, () => {
-    const localIP = getLocalIP();
-    console.log(`\n🚀 服务已启动: http://127.0.0.1:${PORT}`);
-    console.log(`   OpenClash 配置地址: http://${localIP}:${PORT}/config`);
-    console.log(`   OpenClash 转换地址: http://${localIP}:${PORT}/sub\n`);
-  });
-} else {
-  const yamlFile = args.find(a => a.endsWith('.yaml') || a.endsWith('.yml'));
-
-  if (!yamlFile) {
-    console.log('用法:');
-    console.log('  服务模式: node index.js --server');
-    console.log('  本地转换: node index.js <file.yaml>');
-    process.exit(0);
-  }
-
-  const filePath = path.resolve(yamlFile);
-  if (!fs.existsSync(filePath)) {
-    console.error(`[错误] 文件不存在: ${filePath}`);
-    process.exit(1);
-  }
-
-  console.log(`[转换] 读取: ${filePath}`);
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const proxies = parseSubscription(content);
-
-  if (proxies.length === 0) {
-    console.log('[警告] 未解析到节点');
-    process.exit(1);
-  }
-
-  console.log(`[转换] ${proxies.length} 个节点\n`);
-  const name = path.basename(yamlFile, path.extname(yamlFile));
-  console.log(convertToClash(proxies, { name }).yaml);
-}
+// 启动服务
+app.listen(PORT, () => {
+  const localIP = getLocalIP();
+  console.log(`\n🚀 服务已启动: http://127.0.0.1:${PORT}`);
+  console.log(`   OpenClash 配置地址: http://${localIP}:${PORT}/config`);
+  console.log(`   OpenClash 转换地址: http://${localIP}:${PORT}/sub\n`);
+});
 
 module.exports = app;

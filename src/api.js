@@ -13,17 +13,46 @@ const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'config', 'default.json')
 
 // ===================== 工具函数 =====================
 
-function readConfig() {
+/**
+ * 加载 default.json 作为基准，再叠加 config.json 中的用户修改
+ * 这样新增到 default.json 的分组无需用户重建 config.json 即可自动出现
+ */
+function loadDefaultConfig() {
   try {
-    // 优先读用户配置，缺失时回退到默认配置
+    return JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
+  } catch {
+    return { subscriptions: [], groups: [], nodeFilters: {}, excludeKeywords: [] };
+  }
+}
+
+function readConfig() {
+  const def = loadDefaultConfig();
+
+  let user = { subscriptions: [], nodeFilters: {}, excludeKeywords: [], groupOverrides: {} };
+  try {
     if (fs.existsSync(CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    }
-    if (fs.existsSync(DEFAULT_CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
+      user = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
     }
   } catch { /* ignore */ }
-  return { subscriptions: [], groups: [] };
+
+  // 合并：default 分组 + 用户覆盖
+  const overrides = user.groupOverrides || {};
+  const groups = (def.groups || []).map(dg => {
+    const key = dg.ruleId || dg.builtin;
+    const ov = overrides[key] || {};
+    return {
+      ...dg,
+      ...ov,
+      enabled: ov.enabled !== undefined ? ov.enabled : (dg.enabled !== false),
+    };
+  });
+
+  return {
+    subscriptions: user.subscriptions || [],
+    nodeFilters: user.nodeFilters || def.nodeFilters || {},
+    excludeKeywords: user.excludeKeywords || [],
+    groups,
+  };
 }
 
 function writeConfig(config) {
@@ -153,15 +182,43 @@ router.get('/config', (req, res) => {
 
 /**
  * POST /api/config
- * 保存用户配置
+ * 保存用户配置 — 仅存储与 default.json 的差异
  */
 router.post('/config', (req, res) => {
   try {
-    const config = req.body;
-    if (!config || !Array.isArray(config.groups)) {
+    const newConfig = req.body;
+    if (!newConfig || !Array.isArray(newConfig.groups)) {
       return res.status(400).json({ error: '无效的配置格式' });
     }
-    writeConfig(config);
+
+    const def = loadDefaultConfig();
+    const defGroupMap = {};
+    (def.groups || []).forEach(g => {
+      const key = g.ruleId || g.builtin;
+      if (key) defGroupMap[key] = g;
+    });
+
+    // 计算分组覆盖：只存与默认值不同的字段
+    const groupOverrides = {};
+    (newConfig.groups || []).forEach(g => {
+      const key = g.ruleId || g.builtin;
+      const dg = defGroupMap[key];
+      if (!dg) return;
+
+      const ov = {};
+      const defEnabled = dg.enabled !== false;
+      if (g.enabled !== undefined && g.enabled !== defEnabled) ov.enabled = g.enabled;
+      if (g.type !== undefined && g.type !== dg.type) ov.type = g.type;
+      if (g.defaultProxy !== undefined && g.defaultProxy !== dg.defaultProxy) ov.defaultProxy = g.defaultProxy;
+      if (Object.keys(ov).length > 0) groupOverrides[key] = ov;
+    });
+
+    writeConfig({
+      subscriptions: newConfig.subscriptions || [],
+      nodeFilters: newConfig.nodeFilters || def.nodeFilters || {},
+      excludeKeywords: newConfig.excludeKeywords || [],
+      groupOverrides,
+    });
     res.json({ success: true });
   } catch (err) {
     console.error('[api/config]', err.message);

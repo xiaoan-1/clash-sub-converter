@@ -13,18 +13,39 @@ const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.json');
 const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'config', 'default.json');
 
 /**
- * 读取用户配置（缺失时回退到 default.json）
+ * 读取用户配置 — default.json 为基准，叠加 config.json 中用户修改
  */
 function readUserConfig() {
+  let def;
+  try {
+    def = JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
+  } catch {
+    return null;
+  }
+
+  let user = { subscriptions: [], nodeFilters: {}, excludeKeywords: [], groupOverrides: {} };
   try {
     if (fs.existsSync(CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    }
-    if (fs.existsSync(DEFAULT_CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
+      user = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
     }
   } catch { /* ignore */ }
-  return null;
+
+  const overrides = user.groupOverrides || {};
+  const groups = (def.groups || []).map(dg => {
+    const key = dg.ruleId || dg.builtin;
+    const ov = overrides[key] || {};
+    return {
+      ...dg,
+      ...ov,
+      enabled: ov.enabled !== undefined ? ov.enabled : (dg.enabled !== false),
+    };
+  });
+
+  return {
+    groups,
+    nodeFilters: user.nodeFilters || def.nodeFilters || {},
+    excludeKeywords: user.excludeKeywords || [],
+  };
 }
 
 /**

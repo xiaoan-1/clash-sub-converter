@@ -1,0 +1,21 @@
+{
+  "id": "pixiv",
+  "name": "🎨 Pixiv",
+  "type": "select",
+  "rules": [
+    "DOMAIN-SUFFIX,pixiv.net",
+    "DOMAIN-SUFFIX,pixiv.org",
+    "DOMAIN-SUFFIX,pixiv.me",
+    "DOMAIN-SUFFIX,pximg.net",
+    "DOMAIN-SUFFIX,fanbox.cc",
+    "DOMAIN-SUFFIX,booth.pm",
+    "DOMAIN-SUFFIX,pixiv.co.jp",
+    "DOMAIN-SUFFIX,pixivision.net",
+    "DOMAIN,app-api.pixiv.net",
+    "DOMAIN,oauth.secure.pixiv.net",
+    "DOMAIN,dic.pixiv.net",
+    "DOMAIN,sketch.pixiv.net",
+    "DOMAIN,payment.pixiv.net",
+    "DOMAIN,sentry.pixiv.net"
+  ]
+}
