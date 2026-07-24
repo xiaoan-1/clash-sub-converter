@@ -28,7 +28,8 @@
     { "ruleId": "telegram",   "name": "💬 Telegram",     "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
     { "ruleId": "youtube",    "name": "📺 YouTube",      "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
     { "ruleId": "pixiv",      "name": "🎨 Pixiv",        "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "steam",      "name": "🎮 Steam",        "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
+    { "ruleId": "steam-store",   "name": "🎮 Steam 商店/社区", "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
+    { "ruleId": "steam-download","name": "🎮 Steam 下载/联机", "type": "select", "enabled": true, "defaultProxy": "DIRECT" },
     { "builtin": "fallback",  "name": "🐟 漏网之鱼",   "type": "select",   "defaultProxy": "🚀 节点选择" }
   ]
 }

@@ -1,0 +1,12 @@
+{
+  "id": "steam-download",
+  "name": "🎮 Steam 下载/联机",
+  "type": "select",
+  "rules": [
+    "DOMAIN-SUFFIX,steamcontent.com",
+    "DOMAIN-SUFFIX,steamgames.com",
+    "DOMAIN-SUFFIX,qtlglb.com",
+    "DOMAIN,steam.naeu.qtlglb.com",
+    "DOMAIN,clientconfig.passionatecdn.com"
+  ]
+}
