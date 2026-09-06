@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { parseSubscription } = require('./src/parser');
+const { parseSubscription, extractClashDns } = require('./src/parser');
 const { convertToClash, convertToSurge } = require('./src/converter');
 const { fetchSubscription, parseRuleOptions } = require('./src/utils');
 const apiRouter = require('./src/api');
@@ -101,7 +101,11 @@ app.get('/sub', async (req, res) => {
     if (target.startsWith('surge')) {
       res.type('text/plain').send(convertToSurge(proxies, { ruleOptions }));
     } else {
-      res.type('text/yaml').send(convertToClash(proxies, { ruleOptions }).yaml);
+      // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
+      const srcDns = extractClashDns(allContent);
+      const convertOptions = { ruleOptions };
+      if (srcDns) convertOptions.dns = srcDns;
+      res.type('text/yaml').send(convertToClash(proxies, convertOptions).yaml);
     }
   } catch (err) {
     console.error('[sub] 错误:', err.message);

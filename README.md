@@ -63,7 +63,6 @@ clash-sub-converter/
 ├── package.json
 ├── ecosystem.config.js        # PM2 配置
 ├── config/
-│   ├── dns.json               # DNS 配置
 │   ├── regions.json           # 地区分组（22 个地区）
 │   └── rules/                 # 分流规则（15 个 JSON 文件）
 │       ├── common.json        # 系统规则（本地路由，始终生效）

@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { fetchSubscription } = require('./utils');
-const { parseSubscription } = require('./parser');
+const { parseSubscription, extractClashDns } = require('./parser');
 const { isDomestic, CN_LABEL } = require('./proxy-groups');
 const { ruleManager } = require('./rule-manager');
 const { convertToClash } = require('./converter');
@@ -106,7 +106,12 @@ router.post('/convert-file', (req, res) => {
       return res.status(400).json({ error: '未找到有效代理节点' });
     }
 
-    const result = convertToClash(proxies, {});
+    // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
+    const convertOptions = {};
+    const srcDns = extractClashDns(content);
+    if (srcDns) convertOptions.dns = srcDns;
+
+    const result = convertToClash(proxies, convertOptions);
     res.json({ yaml: result.yaml, count: proxies.length });
   } catch (err) {
     console.error('[api/convert-file]', err.message);
@@ -159,7 +164,12 @@ router.post('/convert', async (req, res) => {
       hideInternational: nodeFilter === 'hideInternational'
     };
 
-    const result = convertToClash(proxies, { nodeFilters, excludeKeywords });
+    // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
+    const srcDns = extractClashDns(allContent);
+    const convertOptions = { nodeFilters, excludeKeywords };
+    if (srcDns) convertOptions.dns = srcDns;
+
+    const result = convertToClash(proxies, convertOptions);
     res.json({
       yaml: result.yaml,
       summary: result.summary

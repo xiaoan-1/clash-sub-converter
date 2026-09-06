@@ -5,32 +5,84 @@ const { base64Decode, safeJsonParse } = require('./utils');
 const SUPPORTED_TYPES = new Set(['vmess', 'ss', 'ssr', 'trojan', 'vless', 'hysteria2', 'shadowsocks', 'shadowsocksr']);
 
 /**
- * 尝试解析 Clash YAML 格式
- * @returns {Array|null} 代理数组，或 null 表示不是 YAML 格式
+ * 尝试将内容解析为包含 proxies 数组的 Clash YAML 文档
+ * @returns {Object|null} 完整 YAML 文档，或 null 表示不是 Clash YAML
  */
-function tryParseClashYaml(content) {
+function tryLoadClashDoc(content) {
   try {
     const doc = yaml.load(content);
     if (!doc || !Array.isArray(doc.proxies)) return null;
-
-    return doc.proxies
-      .filter(p => p && p.name && SUPPORTED_TYPES.has(normalizeType(p.type)))
-      .map(p => {
-        const proxy = { ...p, type: normalizeType(p.type) };
-        // clash yaml 里的端口可能是字符串
-        if (proxy.port) proxy.port = parseInt(proxy.port);
-        if (proxy.alterId !== undefined) proxy.alterId = parseInt(proxy.alterId);
-        if (proxy.udp === undefined) proxy.udp = true;
-        return proxy;
-      });
+    return doc;
   } catch {
     return null;
   }
 }
 
 /**
+ * 尝试解析 Clash YAML 格式
+ * @returns {Array|null} 代理数组，或 null 表示不是 YAML 格式
+ */
+function tryParseClashYaml(content) {
+  const doc = tryLoadClashDoc(content);
+  if (!doc) return null;
+
+  return doc.proxies
+    .filter(p => p && p.name && SUPPORTED_TYPES.has(normalizeType(p.type)))
+    .map(p => {
+      const proxy = { ...p, type: normalizeType(p.type) };
+      // clash yaml 里的端口可能是字符串
+      if (proxy.port) proxy.port = parseInt(proxy.port);
+      if (proxy.alterId !== undefined) proxy.alterId = parseInt(proxy.alterId);
+      if (proxy.udp === undefined) proxy.udp = true;
+      return proxy;
+    });
+}
+
+/**
  * 统一代理类型名称（shadowsocks → ss 等）
  */
+// 支持解码的 URI scheme 前缀
+const URI_SCHEME_PREFIXES = ['vmess://', 'ss://', 'ssr://', 'trojan://', 'vless://', 'hysteria2://', 'hy2://'];
+
+/**
+ * 判断文本是否为可解析的 Clash YAML（含 proxies 数组）
+ */
+function isClashYamlText(text) {
+  try {
+    const doc = yaml.load(text);
+    return !!doc && typeof doc === 'object' && Array.isArray(doc.proxies);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 判断文本是否为「每行一个 URI」的节点列表
+ */
+function isUriListText(text) {
+  const lines = String(text).split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return false;
+  return lines.every(l => URI_SCHEME_PREFIXES.some(p => l.startsWith(p)));
+}
+
+/**
+ * 订阅内容解码
+ * 说明：base64Decode 是宽容解码（对任意字符串都不会抛错），因此不能只靠 try/catch
+ * 判断是否为 Base64 —— 必须验证「解码结果真的能被解析」才采用，否则保留原文，
+ * 避免把明文 YAML / URI 文本误判为 Base64 导致解析失败。
+ * @returns {string} 可用于后续解析的文本
+ */
+function decodeSubscriptionContent(content) {
+  const original = (content || '').trim();
+  if (!original) return original;
+
+  const decoded = base64Decode(original);
+  if (decoded && decoded !== original && (isClashYamlText(decoded) || isUriListText(decoded))) {
+    return decoded;
+  }
+  return original;
+}
+
 function normalizeType(type) {
   if (!type) return type;
   const map = { shadowsocks: 'ss', shadowsocksr: 'ssr' };
@@ -44,16 +96,8 @@ function normalizeType(type) {
  *   - Clash YAML: 包含 proxies: 数组的 YAML 配置
  */
 function parseSubscription(content) {
-  // 尝试 Base64 解码
-  let decoded = content.trim();
-  try {
-    const temp = base64Decode(decoded);
-    if (temp.includes('://') || temp.includes('proxies:')) {
-      decoded = temp;
-    }
-  } catch {
-    // 不是 base64，直接使用原文
-  }
+  // 尝试 Base64 解码（仅当解码结果可解析时才采用，见 decodeSubscriptionContent）
+  const decoded = decodeSubscriptionContent(content);
 
   // 优先尝试 Clash YAML 格式（包含 proxies 数组）
   const proxiesFromYaml = tryParseClashYaml(decoded);
@@ -364,5 +408,28 @@ function parseHysteria2(link) {
 }
 
 module.exports = {
-  parseSubscription
+  parseSubscription,
+  extractClashDns
 };
+
+/**
+ * 从订阅内容中提取 Clash YAML 自带的 DNS 配置
+ * 转换时透传它，保证转换结果与「直接用订阅链接导入」行为等价。
+ * 仅对 Clash YAML 类输入有意义：URI 列表 / Base64 的 URI 列表不含 dns，返回 null。
+ * @param {string} content - 原始订阅文本（可能为 Base64 或 Clash YAML）
+ * @returns {Object|null} dns 配置对象，或 null
+ */
+function extractClashDns(content) {
+  const decoded = decodeSubscriptionContent(content);
+  try {
+    const doc = yaml.load(decoded);
+    // 独立解析 dns，不要求文档同时含 proxies；且仅接受对象类型的 dns
+    if (doc && typeof doc === 'object' && !Array.isArray(doc) &&
+        doc.dns && typeof doc.dns === 'object' && !Array.isArray(doc.dns)) {
+      return doc.dns;
+    }
+  } catch {
+    // 非 YAML / 多文档拼接等无法解析，返回 null
+  }
+  return null;
+}

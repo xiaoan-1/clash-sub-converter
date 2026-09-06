@@ -4,10 +4,6 @@ const yaml = require('js-yaml');
 const { generateProxyGroups, isDomestic } = require('./proxy-groups');
 const { ruleManager } = require('./rule-manager');
 
-// 加载 DNS 配置
-const dnsPath = path.join(__dirname, '..', 'config', 'dns.json');
-const DEFAULT_DNS = JSON.parse(fs.readFileSync(dnsPath, 'utf8'));
-
 // 用户配置路径
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.json');
 const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'config', 'default.json');
@@ -64,8 +60,9 @@ function convertToClash(proxies, options = {}) {
     logLevel = 'info',
     externalController = '127.0.0.1:46011',
     secret = '',
-    // DNS 配置
-    dns = DEFAULT_DNS,
+    // DNS 配置：默认不注入，交由客户端默认行为（与直接导入等价）
+    // 仅当源订阅自带 DNS 时，由调用方传入该 dns 并原样透传
+    dns = null,
     // 分组和规则选项
     proxyGroupOptions = {},
     ruleOptions = {},
