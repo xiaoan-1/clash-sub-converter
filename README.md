@@ -1,6 +1,6 @@
 # Clash 订阅转换器
 
-自部署的代理订阅转换服务，将 VMess / SS / SSR / Trojan / VLESS / Hysteria2 订阅转换为 Clash 配置文件，附带 Web 配置界面、智能分组和 15 组分流规则。
+自部署的代理订阅转换服务，将 VMess / SS / SSR / Trojan / VLESS / Hysteria2 订阅转换为 Clash 配置文件，附带 Web 配置界面、智能分组和 17 组分流规则。
 
 > 替代第三方转换服务，订阅数据不经过外部服务器，安全可控。
 
@@ -8,7 +8,7 @@
 
 - **多协议解析** — 支持 7 种代理协议，自动识别 Base64 / YAML 格式
 - **智能分组** — 根据节点名称自动识别 22 个地区，生成 url-test 分组
-- **15 组分流规则** — 覆盖 AI、流媒体、游戏、社交通讯等主流服务
+- **17 组分流规则** — 覆盖 AI、流媒体、游戏、社交通讯等主流服务
 - **Web 配置界面** — 可视化管理过滤规则、分组策略、排除关键词
 - **RESTful API** — 完整的 CRUD 接口，支持规则管理、配置持久化
 - **OpenClash 兼容** — 提供 `/sub` 端点，可直接填入 OpenClash 使用
@@ -46,25 +46,19 @@ npm run status   # 状态
 ### 开发模式
 
 ```bash
-node index.js --server
-```
-
-### 命令行转换
-
-```bash
-node index.js <订阅文件.yaml>
+npm run dev
 ```
 
 ## 项目结构
 
 ```
 clash-sub-converter/
-├── index.js                   # 入口（HTTP 服务 + CLI）
+├── index.js                   # 入口（HTTP 服务）
 ├── package.json
 ├── ecosystem.config.js        # PM2 配置
 ├── config/
 │   ├── regions.json           # 地区分组（22 个地区）
-│   └── rules/                 # 分流规则（15 个 JSON 文件）
+│   └── rules/                 # 分流规则（18 个 JSON 文件）
 │       ├── common.json        # 系统规则（本地路由，始终生效）
 │       ├── apple.json         # 🍎 Apple 服务
 │       ├── microsoft.json     # Ⓜ️ 微软服务
@@ -79,6 +73,9 @@ clash-sub-converter/
 │       ├── bilibili.json      # 📺 哔哩哔哩
 │       ├── bahamut.json       # 🎮 巴哈姆特
 │       ├── github.json        # ⌨️ GitHub
+│       ├── pixiv.json         # 🎨 Pixiv
+│       ├── steam-store.json   # 🎮 Steam 商店/社区
+│       ├── steam-download.json # 🎮 Steam 下载/联机
 │       └── mihoyo.json        # ⭕️💰 miHoYo
 ├── src/
 │   ├── parser.js              # 订阅解析器（7 种协议）
@@ -125,9 +122,6 @@ curl -X POST http://127.0.0.1:25500/api/convert \
 
 # OpenClash 兼容端点
 curl "http://127.0.0.1:25500/sub?target=clash&url=https://sub.example.com/link"
-
-# CLI 本地转换
-node index.js 订阅文件.yaml
 ```
 
 ## 支持的协议
@@ -168,7 +162,7 @@ node index.js 订阅文件.yaml
 
 ## 分流规则
 
-15 组分流规则位于 `config/rules/`，可通过配置页面或 API 启用/禁用：
+18 个规则文件位于 `config/rules/`（17 个可配置服务分组 + 系统本地路由 `common.json`），可通过配置页面或 API 启用/禁用：
 
 | 规则组 | 包含内容 |
 |--------|----------|
@@ -186,6 +180,9 @@ node index.js 订阅文件.yaml
 | 🎮 巴哈姆特 | bahamut.com.tw、gamer.com.tw |
 | ⌨️ GitHub | github.com、githubusercontent.com、githubassets.com |
 | ⭕️💰 miHoYo | mihoyo.com、hoyoverse.com、yuanshen.com |
+| 🎨 Pixiv | pixiv.net、pximg.net、fanbox.cc、booth.pm |
+| 🎮 Steam 商店/社区 | steampowered.com、steamcommunity.com、steamstatic.com（默认 ♻️ 自动选择） |
+| 🎮 Steam 下载/联机 | steamcontent.com、steamgames.com、qtlglb.com（默认 DIRECT） |
 | 🏠 本地路由 | 局域网、私有 IP、路由器、DDNS、GEOIP 国内（始终生效、不可配置） |
 
 ## 在 OpenClash 中使用

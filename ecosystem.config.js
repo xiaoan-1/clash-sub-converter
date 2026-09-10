@@ -2,7 +2,6 @@ module.exports = {
   apps: [{
     name: 'clash-sub-converter',
     script: 'index.js',
-    args: '--server',
     instances: 1,
     exec_mode: 'fork',
     watch: false,

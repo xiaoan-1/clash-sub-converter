@@ -118,9 +118,15 @@ app.get('/sub', async (req, res) => {
 // 启动服务
 app.listen(PORT, () => {
   const localIP = getLocalIP();
-  console.log(`\n🚀 服务已启动: http://127.0.0.1:${PORT}`);
-  console.log(`   OpenClash 配置地址: http://${localIP}:${PORT}/config`);
-  console.log(`   OpenClash 转换地址: http://${localIP}:${PORT}/sub\n`);
+  const base = `http://${localIP}:${PORT}`;
+  console.log(`\n🚀 Clash 订阅转换器已启动（端口 ${PORT}）\n`);
+  console.log(`   ① 使用说明页 — 浏览器打开，查看部署步骤与用法`);
+  console.log(`      ${base}/`);
+  console.log(`   ② 配置界面 — 浏览器打开，管理订阅链接 / 节点过滤 / 分组策略`);
+  console.log(`      ${base}/config`);
+  console.log(`   ③ 订阅转换地址 — 填入 OpenClash，必须带 url 参数`);
+  console.log(`      ${base}/sub?target=clash&url=<订阅链接>`);
+  console.log(`\n   本机访问可用 http://127.0.0.1:${PORT}\n`);
 });
 
 module.exports = app;
