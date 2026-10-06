@@ -262,6 +262,7 @@ const RULE_GROUP_ALIASES = {
  * 取所有可被 include/exclude 控制的规则组 id。
  * ALWAYS_ON_RULE_ID 不是可选分组（其 target 为 DIRECT）且始终启用，因此排除。
  * 直接从规则目录推导，新增规则文件无需再同步别名表。
+ * user-config.js 也用它来判断某规则是否属于可选分组（补全前端分组清单）。
  */
 function ruleGroupKeys() {
   return ruleManager.getAll()
@@ -347,5 +348,6 @@ module.exports = {
   DEFAULT_FETCH_UA,
   RULE_GROUP_ALIASES,
   patternMatchGroup,
-  parseRuleOptions
+  parseRuleOptions,
+  ruleGroupKeys
 };
