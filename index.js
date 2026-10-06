@@ -56,21 +56,24 @@ app.get('/', (req, res) => {
 
 /**
  * subconverter 兼容端点 - 专供 OpenClash
- * OpenClash 发送: /sub?target=clash&url=...&config=...&include=...&exclude=...&emoji=...&udp=...
+ * OpenClash 发送: /sub?target=clash&url=...&include=...&exclude=...&ua=...
+ *
+ * 只实现上面这几个参数。subconverter 的 emoji / udp / scv / sort /
+ * append_type / config（外部模板 URL）本服务一律不支持，此前虽被解构出来
+ * 却从未使用，读代码时容易误以为它们有效，故不再解构：
+ *   - udp    节点是否 UDP 由订阅自身决定（parser 里统一置 true）
+ *   - scv    skip-cert-verify 同样只来自订阅
+ *   - emoji  不做节点名 emoji 处理
+ *   - sort   保持订阅原有顺序
+ *   - config 本服务自带分组 / 规则体系，不套用外部模板
  */
 app.get('/sub', async (req, res) => {
   try {
     const {
       target = 'clash',
       url,
-      config: templateUrl,
       include,
       exclude,
-      emoji,
-      udp,
-      scv,
-      sort,
-      append_type,
       ua,
     } = req.query;
 
