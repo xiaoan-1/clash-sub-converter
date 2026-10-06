@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { pickUserAgent, FALLBACK_UA } = require('./user-agents');
+const { ruleManager } = require('./rule-manager');
 
 /** 默认 UA（未做任何配置时使用） */
 const DEFAULT_FETCH_UA = FALLBACK_UA;
@@ -278,21 +279,40 @@ function applySubscriptionHeaders(res, metas) {
 
 /**
  * 规则组别名映射（OpenClash include/exclude 匹配用）
+ *
+ * 键 = config/rules/*.json 里的规则 id；值 = 额外的可匹配写法（中英文）。
+ * 键之外的 id 无需登记，patternMatchGroup 会退回用 id 本身匹配。
  */
 const RULE_GROUP_ALIASES = {
-  telegram: ['telegram', 'tg'],
-  openai:   ['openai', 'chatgpt', 'gpt'],
-  claude:   ['claude', 'anthropic'],
-  gemini:   ['gemini', 'bard', 'google ai', 'deepmind'],
-  youtube:  ['youtube', 'ytb'],
-  netflix:  ['netflix', 'nf'],
-  disney:   ['disney', 'disneyplus'],
-  dazn:     ['dazn'],
-  bahamut:  ['bahamut'],
-  bilibili: ['bilibili', 'bili'],
-  github:   ['github', 'gh'],
-  mihoyo:   ['mihoyo', 'hoyoverse'],
+  telegram:         ['telegram', 'tg'],
+  openai:           ['openai', 'chatgpt', 'gpt'],
+  claude:           ['claude', 'anthropic'],
+  gemini:           ['gemini', 'bard', 'google ai', 'deepmind'],
+  youtube:          ['youtube', 'ytb'],
+  netflix:          ['netflix', 'nf'],
+  disney:           ['disney', 'disneyplus'],
+  dazn:             ['dazn'],
+  bahamut:          ['bahamut', '巴哈姆特'],
+  bilibili:         ['bilibili', 'bili', '哔哩哔哩'],
+  github:           ['github', 'gh'],
+  mihoyo:           ['mihoyo', 'hoyoverse', '米哈游'],
+  apple:            ['apple', '苹果', 'icloud', 'appstore'],
+  microsoft:        ['microsoft', '微软', 'onedrive', 'bing'],
+  pixiv:            ['pixiv', 'pix'],
+  'steam-download': ['steam-download', 'steam下载', 'steam下载/联机', 'steam联机'],
+  'steam-store':    ['steam-store', 'steam商店', 'steam商店/社区', 'steam社区'],
 };
+
+/**
+ * 取所有可被 include/exclude 控制的规则组 id。
+ * common 不是可选分组（其 target 为 DIRECT）且始终启用，因此排除。
+ * 直接从规则目录推导，新增规则文件无需再同步别名表。
+ */
+function ruleGroupKeys() {
+  return ruleManager.getAll()
+    .map(r => r.id)
+    .filter(id => id !== 'common');
+}
 
 /**
  * 正则模式匹配规则组
@@ -314,7 +334,7 @@ function patternMatchGroup(pattern, groupKey) {
  * 解析 OpenClash 发送的 include/exclude 正则，映射到内部规则组
  */
 function parseRuleOptions(include, exclude) {
-  const ruleKeys = Object.keys(RULE_GROUP_ALIASES);
+  const ruleKeys = ruleGroupKeys();
   const ruleOptions = {};
 
   // 默认全部启用
