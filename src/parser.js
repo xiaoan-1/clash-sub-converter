@@ -241,6 +241,44 @@ function parseVmess(link) {
 }
 
 /**
+ * decodeURIComponent 的安全包装。
+ * 用户给的名称里常有裸 `%`（如「100% 稳定」），decodeURIComponent 会抛 URIError；
+ * 那样会让整条节点被丢弃，而这里完全可以退回原字符串。
+ */
+function safeDecodeURIComponent(str) {
+  try {
+    return decodeURIComponent(str);
+  } catch {
+    return str;
+  }
+}
+
+/**
+ * 解析 SS 的 userinfo，得到 { method, password }。
+ *
+ * SIP002 规定 userinfo 既可以是 URL-safe base64，也可以是 URL 编码的明文，两种都得支持：
+ *   ss://<base64(aes-256-gcm:password)>@host:port
+ *   ss://aes-256-gcm:password@host:port
+ * 明文必然含冒号，而 base64 字符集（A-Za-z0-9+/-_）不含冒号，可据此区分。
+ *
+ * 密码允许含冒号（如 `pa:ss:word`），所以只能按「第一个冒号」切分 ——
+ * 用 split(':') 只取前两段会把密码截断成 `pa`，进而连不上节点。
+ * 加密方式名称本身不含冒号（aes-256-gcm、chacha20-ietf-poly1305 …），该前提由 SS 协议保证。
+ *
+ * @returns {{method:string, password:string}|null} 辨认不出「加密方式:密码」时返回 null
+ */
+function parseSsUserInfo(userinfo) {
+  const decoded = userinfo.includes(':') ? safeDecodeURIComponent(userinfo) : base64Decode(userinfo);
+  const sep = decoded.indexOf(':');
+  // 既非明文也非合法 base64 时拿不到冒号：与其产出一个密码/加密方式错乱的节点，不如丢弃
+  if (sep === -1) return null;
+  return {
+    method: decoded.substring(0, sep).trim(),
+    password: decoded.substring(sep + 1)
+  };
+}
+
+/**
  * 解析 SS 链接
  * 格式: ss://base64(method:password)@server:port#name
  * 或:   ss://base64(method:password@server:port)#name
@@ -252,41 +290,42 @@ function parseShadowsocks(link) {
   let body = content;
 
   if (nameIdx !== -1) {
-    name = decodeURIComponent(content.substring(nameIdx + 1));
+    name = safeDecodeURIComponent(content.substring(nameIdx + 1));
     body = content.substring(0, nameIdx);
   }
 
-  let method, password, server, port;
+  let creds, server, port;
 
   if (body.includes('@')) {
-    // SIP002 格式: ss://base64(method:password)@server:port
-    const [userinfo, hostinfo] = body.split('@');
-    const decoded = base64Decode(userinfo);
-    [method, password] = decoded.split(':');
+    // SIP002 格式: ss://userinfo@server:port
+    // 按第一个 @ 切分：host 部分不含 @，而密码里可能有
+    const atIdx = body.indexOf('@');
+    creds = parseSsUserInfo(body.substring(0, atIdx));
+    const hostinfo = body.substring(atIdx + 1);
     const lastColon = hostinfo.lastIndexOf(':');
     server = hostinfo.substring(0, lastColon);
     port = parseInt(hostinfo.substring(lastColon + 1));
   } else {
     // 旧格式: ss://base64(method:password@server:port)
     const decoded = base64Decode(body);
-    const atIdx = decoded.lastIndexOf('@');
-    const methodPass = decoded.substring(0, atIdx);
+    const atIdx = decoded.indexOf('@');
+    if (atIdx === -1) return null;
+    creds = parseSsUserInfo(decoded.substring(0, atIdx));
     const hostPart = decoded.substring(atIdx + 1);
-    [method, password] = methodPass.split(':');
     const lastColon = hostPart.lastIndexOf(':');
     server = hostPart.substring(0, lastColon);
     port = parseInt(hostPart.substring(lastColon + 1));
   }
 
-  if (!server || !port) return null;
+  if (!creds || !creds.method || !server || !port) return null;
 
   return {
     name: name || `${server}:${port}`,
     type: 'ss',
     server,
     port,
-    password,
-    cipher: method || 'aes-256-gcm',
+    password: creds.password,
+    cipher: creds.method,
     udp: true
   };
 }
