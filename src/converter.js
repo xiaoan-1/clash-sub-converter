@@ -18,6 +18,67 @@ class AllProxiesFilteredError extends Error {
 }
 
 /**
+ * 解析本次转换要用的用户配置。
+ * options 显式传入的优先（API 可以按请求覆盖），否则回退到 config.json。
+ * Clash 与 Surge 共用，保证两个入口的过滤/分组策略一致。
+ */
+function resolveUserConfig(options = {}) {
+  const userConfig = readConfig();
+  return {
+    userGroups: options.userGroups || userConfig?.groups || [],
+    nodeFilters: options.nodeFilters || userConfig?.nodeFilters || {},
+    excludeKeywords: options.excludeKeywords || userConfig?.excludeKeywords || [],
+  };
+}
+
+/**
+ * 按用户配置过滤节点：先按关键词排除，再按国内/国际开关过滤。
+ *
+ * 节点被过滤干净时立即抛错：否则会产出一份「没有真实节点」的空壳配置，
+ * 客户端能加载但一个节点都用不了，用户只会看到节点凭空消失而无从排查。
+ *
+ * @param {Array} proxies
+ * @param {Object} nodeFilters - { hideDomestic, hideInternational }
+ * @param {Array} excludeKeywords
+ * @returns {Array} 过滤后的节点
+ */
+function applyNodeFilters(proxies, nodeFilters = {}, excludeKeywords = []) {
+  const { hideDomestic = false, hideInternational = false } = nodeFilters;
+
+  // 0. 关键词排除（空串会命中所有节点，由 filterByExcludeKeywords 内部剔除）
+  const afterKeywords = filterByExcludeKeywords(proxies, excludeKeywords);
+  let activeProxies = afterKeywords;
+
+  // 0.5 国内/国际过滤（两个同时开启 = 无意义，回退为不过滤）
+  if (hideDomestic && !hideInternational) {
+    activeProxies = activeProxies.filter(p => !isDomestic(p.name));
+  } else if (hideInternational && !hideDomestic) {
+    activeProxies = activeProxies.filter(p => isDomestic(p.name));
+  }
+
+  if (proxies.length > 0 && activeProxies.length === 0) {
+    const reasons = [];
+    // 只列出「真的减少了节点」的条件：默认配置带了一批关键词与开关，
+    // 把没起作用的也写进提示会把用户的排查方向带偏。
+    if (afterKeywords.length < proxies.length) {
+      const hitKeywords = normalizeExcludeKeywords(excludeKeywords).filter(kw =>
+        proxies.some(p => String(p.name || '').toUpperCase().includes(kw)));
+      if (hitKeywords.length) reasons.push(`排除关键词「${hitKeywords.join('、')}」`);
+    }
+    if (afterKeywords.length > 0) {
+      if (hideDomestic && !hideInternational) reasons.push('隐藏国内节点');
+      if (hideInternational && !hideDomestic) reasons.push('隐藏国际节点');
+    }
+    throw new AllProxiesFilteredError(
+      proxies.length,
+      reasons.length ? `当前过滤条件（${reasons.join(' + ')}）排除了全部节点` : null
+    );
+  }
+
+  return activeProxies;
+}
+
+/**
  * 将解析后的代理节点转换为完整的 Clash YAML 配置
  * @param {Array} proxies - 代理节点数组
  * @param {Object} options - 配置选项
@@ -44,47 +105,13 @@ function convertToClash(proxies, options = {}) {
   } = options;
 
   // 读取用户配置（options 优先级高于文件配置）
-  const userConfig = readConfig();
-  const userGroups = options.userGroups || userConfig?.groups || [];
-  const nodeFilters = options.nodeFilters || userConfig?.nodeFilters || {};
-  const excludeKeywords = options.excludeKeywords || userConfig?.excludeKeywords || [];
+  const { userGroups, nodeFilters, excludeKeywords } = resolveUserConfig(options);
+  const activeProxies = applyNodeFilters(proxies, nodeFilters, excludeKeywords);
 
-  // 0. 关键词排除（空串会命中所有节点，由 filterByExcludeKeywords 内部剔除）
-  const afterKeywords = filterByExcludeKeywords(proxies, excludeKeywords);
-  let activeProxies = afterKeywords;
-
-  // 0.5 国内/国际过滤
-  const { hideDomestic = false, hideInternational = false } = nodeFilters;
-  if (hideDomestic && !hideInternational) {
-    activeProxies = activeProxies.filter(p => !isDomestic(p.name));
-  } else if (hideInternational && !hideDomestic) {
-    activeProxies = activeProxies.filter(p => isDomestic(p.name));
-  }
-  // 两个同时开启 → 不处理（回退为不过滤）
-
-  // 节点被过滤干净时立即失败：否则会产出一份「没有真实节点」的空壳配置，
-  // mihomo 能加载但一个节点都用不了，用户只会看到节点凭空消失而无从排查。
-  if (proxies.length > 0 && activeProxies.length === 0) {
-    const reasons = [];
-    // 只列出「真的减少了节点」的条件：默认配置带了一批关键词与开关，
-    // 把没起作用的也写进提示会把用户的排查方向带偏。
-    if (afterKeywords.length < proxies.length) {
-      const hitKeywords = normalizeExcludeKeywords(excludeKeywords).filter(kw =>
-        proxies.some(p => String(p.name || '').toUpperCase().includes(kw)));
-      if (hitKeywords.length) reasons.push(`排除关键词「${hitKeywords.join('、')}」`);
-    }
-    if (afterKeywords.length > 0) {
-      if (hideDomestic && !hideInternational) reasons.push('隐藏国内节点');
-      if (hideInternational && !hideDomestic) reasons.push('隐藏国际节点');
-    }
-    throw new AllProxiesFilteredError(
-      proxies.length,
-      reasons.length ? `当前过滤条件（${reasons.join(' + ')}）排除了全部节点` : null
-    );
-  }
-
-  // 生成代理分组（传入用户配置以覆盖默认分组）
-  const proxyGroups = generateProxyGroups(activeProxies, { ...proxyGroupOptions, userGroups, nodeFilters, excludeKeywords });
+  // 生成代理分组。
+  // activeProxies 已按用户配置过滤过，此处不再重复传 nodeFilters/excludeKeywords：
+  // 过滤只保留 applyNodeFilters 一处，避免两个地方各过滤一遍而悄悄分叉。
+  const proxyGroups = generateProxyGroups(activeProxies, { ...proxyGroupOptions, userGroups });
 
   // 生成规则
   const rules = includeDefaultRules ? ruleManager.generateRules(ruleOptions) : (ruleOptions.customRules || ['MATCH,🐟 漏网之鱼']);
@@ -159,8 +186,15 @@ function convertToClash(proxies, options = {}) {
 
 /**
  * 将配置转换为 Surge 格式（简化版）
+ *
+ * 与 convertToClash 共用同一套用户配置解析与节点过滤：
+ * 过滤/分组策略必须与 Clash 输出一致，否则同一个订阅在两个入口会得到
+ * 不同的节点集合与分组默认项，用户无从判断哪个才是自己要的。
  */
 function convertToSurge(proxies, options = {}) {
+  const { userGroups, nodeFilters, excludeKeywords } = resolveUserConfig(options);
+  const activeProxies = applyNodeFilters(proxies, nodeFilters, excludeKeywords);
+
   const lines = [];
   lines.push('#!name = ' + (options.name || 'Clash 订阅'));
   lines.push('');
@@ -171,7 +205,7 @@ function convertToSurge(proxies, options = {}) {
   lines.push('');
 
   lines.push('[Proxy]');
-  for (const proxy of proxies) {
+  for (const proxy of activeProxies) {
     let line;
     switch (proxy.type) {
       case 'vmess':
@@ -206,7 +240,7 @@ function convertToSurge(proxies, options = {}) {
   lines.push('');
 
   lines.push('[Proxy Group]');
-  const groups = generateProxyGroups(proxies, options.proxyGroupOptions || {});
+  const groups = generateProxyGroups(activeProxies, { ...(options.proxyGroupOptions || {}), userGroups });
   for (const group of groups) {
     const proxyList = group.proxies.join(', ');
     if (group.type === 'select') {
