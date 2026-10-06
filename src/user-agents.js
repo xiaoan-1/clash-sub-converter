@@ -165,29 +165,45 @@ function listPresets() {
 }
 
 /**
- * 解析出本次拉取实际要发送的 UA
+ * 解析出本次拉取实际要发送的 UA，并说明它是怎么来的。
+ *
+ * `source` 只用于日志：机场因 UA 不一致而作废订阅地址时，
+ * 必须能一眼看出当时发的是哪个 UA、是配置选的还是透传的。
+ *
  * @param {Object} fetchCfg  - 配置中的 fetch 段 { userAgent, customUserAgent }
  * @param {string} callerUA  - 调用方请求头里的 UA
- * @returns {string} 实际 UA
+ * @returns {{ua:string, source:string}}
  */
-function pickUserAgent(fetchCfg, callerUA) {
+function resolveUserAgent(fetchCfg, callerUA) {
   const cfg = fetchCfg && typeof fetchCfg === 'object' ? fetchCfg : {};
   const mode = cfg.userAgent || DEFAULT_UA_ID;
 
   if (mode === 'custom') {
     const custom = String(cfg.customUserAgent || '').trim();
-    return custom || presetUa(DEFAULT_UA_ID) || FALLBACK_UA;
+    if (custom) return { ua: custom, source: 'config:custom（配置页面手填）' };
+    return {
+      ua: presetUa(DEFAULT_UA_ID) || FALLBACK_UA,
+      source: `config:custom 但未填写，已回退 ${DEFAULT_UA_ID}`,
+    };
   }
 
   if (mode === 'auto') {
     const caller = String(callerUA || '').trim();
     // 仅当调用方确实是代理客户端时才透传；浏览器 / curl / node / python 等
     // 非客户端请求一律回退到默认预设，避免把“非客户端” UA 转给机场。
-    if (isProxyClientUA(caller)) return caller;
-    return presetUa(DEFAULT_UA_ID) || FALLBACK_UA;
+    if (isProxyClientUA(caller)) return { ua: caller, source: 'config:auto（透传调用方）' };
+    return {
+      ua: presetUa(DEFAULT_UA_ID) || FALLBACK_UA,
+      source: `config:auto（调用方「${caller || '空'}」不是代理客户端，回退 ${DEFAULT_UA_ID}）`,
+    };
   }
 
-  return presetUa(mode) || presetUa(DEFAULT_UA_ID) || FALLBACK_UA;
+  const ua = presetUa(mode);
+  if (ua) return { ua, source: `config:${mode}（预设）` };
+  return {
+    ua: presetUa(DEFAULT_UA_ID) || FALLBACK_UA,
+    source: `config:${mode} 不是有效预设，已回退 ${DEFAULT_UA_ID}`,
+  };
 }
 
 module.exports = {
@@ -200,5 +216,5 @@ module.exports = {
   isBrowserUA,
   isProxyClientUA,
   listPresets,
-  pickUserAgent,
+  resolveUserAgent,
 };

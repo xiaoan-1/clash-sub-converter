@@ -1,4 +1,4 @@
-const { pickUserAgent, FALLBACK_UA } = require('./user-agents');
+const { resolveUserAgent, FALLBACK_UA } = require('./user-agents');
 const { ruleManager, ALWAYS_ON_RULE_ID } = require('./rule-manager');
 const logger = require('./logger');
 
@@ -6,6 +6,12 @@ const log = logger.create('fetch');
 
 /** 默认 UA（未做任何配置时使用） */
 const DEFAULT_FETCH_UA = FALLBACK_UA;
+
+/** 拉取订阅的超时时间。超时与其它失败要分开报，排查方向完全不同 */
+const SUBSCRIBE_TIMEOUT_MS = 15000;
+
+/** 失败时预览响应正文的上限，超过就不读了，避免把大文件拉进内存 */
+const MAX_PREVIEW_SOURCE_BYTES = 1024 * 1024;
 
 /**
  * Base64 解码
@@ -164,6 +170,58 @@ function buildContentDisposition(fileName) {
 }
 
 /**
+ * 判断一个异常是否由超时触发。
+ *
+ * AbortSignal.timeout 抛出的异常在 err 与 err.cause 上表现不一致，
+ * 这里顺着 cause 链扫一遍，两者都认。
+ */
+function isTimeoutError(err) {
+  for (let e = err, depth = 0; e && depth < 4; e = e.cause, depth++) {
+    const name = String(e.name || '');
+    if (name === 'TimeoutError' || name === 'AbortError') return true;
+    if (String(e.code || '') === 'UND_ERR_ABORTED') return true;
+  }
+  return false;
+}
+
+/**
+ * 把一个失败的 HTTP 响应拆成可落盘的诊断字段。
+ *
+ * 重点是 `body`：机场在 token 失效 / 订阅过期 / 限流时，通常会在正文里
+ * 直接写明原因（`订阅已过期` / `token is invalid` / `请求过于频繁`），
+ * 这比状态码本身有用得多。正文统一过 preview() 脱敏 + 截断。
+ */
+async function describeHttpFailure(response) {
+  const headers = response.headers;
+  const out = {
+    'content-type': headers.get('content-type') || '-',
+    reason: `HTTP ${response.status}${response.statusText ? ' ' + response.statusText : ''}`,
+    hint: logger.httpHint(response.status),
+    // 以下头部用于判断「是谁返回的这个错误」：CDN 拦截或机场自己的错误页
+    server: headers.get('server') || undefined,
+    'cf-ray': headers.get('cf-ray') || undefined,
+    via: headers.get('via') || undefined,
+    'www-authenticate': headers.get('www-authenticate') || undefined,
+    'retry-after': headers.get('retry-after') || undefined,
+    location: headers.get('location') || undefined,
+  };
+
+  const declared = Number(headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_PREVIEW_SOURCE_BYTES) {
+    return { ...out, body: `(响应体 ${logger.formatBytes(declared)}，过大未读取)` };
+  }
+
+  try {
+    const text = await response.text();
+    out['body-bytes'] = logger.formatBytes(Buffer.byteLength(text, 'utf-8'));
+    out.body = logger.preview(text, 200) || '(空)';
+  } catch (err) {
+    out.body = `(读取响应体失败：${err.message})`;
+  }
+  return out;
+}
+
+/**
  * 请求订阅源，返回正文与元信息响应头。
  *
  * UA 可配置：机场会校验拉取订阅的客户端标识，若与你的实际客户端不一致，
@@ -172,47 +230,113 @@ function buildContentDisposition(fileName) {
  * @param {string} url
  * @param {Object} [options]
  * @param {string} [options.userAgent] - 直接指定 UA（优先级最高）
+ * @param {string} [options.uaSource]  - 这个 UA 是哪来的（仅用于日志）
  * @param {Object} [options.fetchCfg]  - 配置中的 fetch 段 { userAgent, customUserAgent }
  * @param {string} [options.callerUA]  - 调用方请求头里的 UA（供 auto 模式透传）
  * @returns {Promise<{text:string,userInfo:Object|null,homeUrl:string,updateInterval:string,fileName:string}>}
  */
 async function requestSubscription(url, options = {}) {
-  const ua = options.userAgent
-    || pickUserAgent(options.fetchCfg || {}, options.callerUA || '')
-    || DEFAULT_FETCH_UA;
+  let ua = options.userAgent;
+  let uaSource = options.uaSource;
+  if (!ua) {
+    // 调用方未预先算 UA 时的兜底，顺带取回「这个 UA 是哪来的」供日志使用
+    const resolved = resolveUserAgent(options.fetchCfg || {}, options.callerUA || '');
+    ua = resolved.ua;
+    uaSource = resolved.source;
+  }
+  ua = ua || DEFAULT_FETCH_UA;
+  uaSource = uaSource || '未标注';
 
   const safe = logger.safeUrl(url);
+  const host = logger.hostOf(url);
   const t = logger.timer();
-  log.debug('开始拉取订阅', { url: safe, ua });
+
+  // 「用什么去订阅的」：UA 是机场风控的第一道门槛，UV 报 403 时先看这行
+  log.debug('发起订阅请求', {
+    method: 'GET',
+    url: safe,
+    host,
+    ua,
+    'ua-source': uaSource,
+    accept: '*/*',
+    timeout: logger.formatMs(SUBSCRIBE_TIMEOUT_MS),
+    redirect: 'follow',
+  });
 
   let response;
   try {
     response = await fetch(url, {
       headers: { 'User-Agent': ua, 'Accept': '*/*' },
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(SUBSCRIBE_TIMEOUT_MS)
     });
   } catch (err) {
     // 超时 / DNS / TLS / 连接被拒都在这里。区分超时与其他，排查方向完全不同
-    const timeout = err.name === 'TimeoutError' || err.name === 'AbortError';
-    log.warn('拉取订阅失败', {
+    const timeout = isTimeoutError(err);
+    const d = logger.describeError(err);
+    const hint = timeout
+      ? '只有这一个订阅超时 → 多半是机场侧问题；所有订阅都超时 → 检查本机网络 / DNS / 代理。'
+      : '连接阶段就失败，说明还没到机场的鉴权环节：先确认订阅域名能 ping 通 / 能解析。';
+    log.warn('拉取订阅失败：请求未能完成', {
       url: safe,
+      host,
       ua,
+      'ua-source': uaSource,
       dur: t.text(),
-      reason: timeout ? '超时（15 秒）' : err.message,
+      'fail-stage': timeout ? 'timeout' : 'connect',
+      reason: timeout ? `超时（${logger.formatMs(SUBSCRIBE_TIMEOUT_MS)} 内未拿到响应）` : d.reason,
+      'net-code': d['net-code'],
+      'net-cause': d['net-cause'],
+      'net-detail': d['net-detail'],
+      'net-hint': d['net-hint'] || (timeout ? '对端在超时时间内未响应：机场侧慢或被网络阻断' : undefined),
+      hint,
     });
+    // 把翻译结果挂到异常上，供上层（/sub、/api/convert）汇总时复用：
+    // Node fetch 的原始错误码在 err.cause 里，上层直接读 err.code 只会拿到空值
+    err.netCode = d['net-code'];
+    err.hint = err.hint || hint;
+    err.stage = timeout ? 'timeout' : 'connect';
+    // 上层汇总用这句，而不是 undici 那句英文的 aborted due to timeout
+    err.failReason = timeout
+      ? `超时（${logger.formatMs(SUBSCRIBE_TIMEOUT_MS)} 内未拿到响应）`
+      : err.message;
     throw err;
   }
 
+  // HTTP 层失败：带上状态行、关键响应头与正文摘要。
+  // 机场的「token 失效 / 订阅过期 / 请求过于频繁」通常直接写在正文里。
   if (!response.ok) {
-    log.warn('拉取订阅失败', {
+    const meta = await describeHttpFailure(response);
+    log.warn('拉取订阅失败：服务端返回错误状态码', {
       url: safe,
+      host,
       ua,
+      'ua-source': uaSource,
       dur: t.text(),
+      'fail-stage': 'http',
       status: response.status,
-      'content-type': response.headers.get('content-type') || '-',
-      reason: `HTTP ${response.status}`,
+      'status-text': response.statusText || '-',
+      server: meta.server,
+      'cf-ray': meta['cf-ray'],
+      via: meta.via,
+      'www-authenticate': meta['www-authenticate'],
+      'retry-after': meta['retry-after'],
+      location: meta.location,
+      'content-type': meta['content-type'],
+      'body-bytes': meta['body-bytes'],
+      'response-body': meta.body,
+      reason: meta.reason,
+      hint: meta.hint,
     });
-    throw new Error(`HTTP ${response.status}`);
+
+    // 把诊断信息挂到异常上，供上层（/sub、/api/convert）汇总时复用
+    const e = new Error(`HTTP ${response.status}`);
+    e.status = response.status;
+    e.statusText = response.statusText || '';
+    e.responseBody = meta.body;
+    e.hint = meta.hint;
+    e.stage = 'http';
+    e.failReason = meta.reason;
+    throw e;
   }
 
   const headers = response.headers;
@@ -225,11 +349,16 @@ async function requestSubscription(url, options = {}) {
 
   log.info('拉取订阅成功', {
     url: safe,
+    host,
     ua,
+    'ua-source': uaSource,
     dur: t.text(),
     status: response.status,
     'content-type': headers.get('content-type') || '-',
     bytes: logger.formatBytes(Buffer.byteLength(text, 'utf-8')),
+    // age>0 表示这次命中了 CDN 缓存，拿到的是旧订阅，可解释「订阅没更新」
+    'cdn-cache': headers.get('cf-cache-status') || headers.get('x-cache') || undefined,
+    age: headers.get('age') || undefined,
   });
 
   // 机场元信息逐项记录：客户端「订阅详情」空白时，靠这几行判断是机场没下发还是本地没转发

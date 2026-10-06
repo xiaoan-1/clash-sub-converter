@@ -4,7 +4,7 @@ const { parseSubscriptionList, extractClashDns } = require('./src/parser');
 const { convertToClash, convertToSurge } = require('./src/converter');
 const { requestSubscription, parseRuleOptions, applySubscriptionHeaders } = require('./src/utils');
 const { readConfig } = require('./src/user-config');
-const { pickUserAgent } = require('./src/user-agents');
+const { resolveUserAgent } = require('./src/user-agents');
 const logger = require('./src/logger');
 const apiRouter = require('./src/api');
 
@@ -105,7 +105,11 @@ app.get('/sub', async (req, res) => {
     // 拉取订阅时使用的 UA：?ua= 显式指定 > 配置 > 透传调用方（浏览器则回退预设）
     const callerUA = req.get('user-agent') || '';
     const { fetch: fetchCfg = {} } = readConfig();
-    const fetchOpts = { userAgent: ua || pickUserAgent(fetchCfg, callerUA) };
+    // 连同「这个 UA 是怎么定出来的」一起带下去：机场因 UA 不一致作废订阅时靠它定位
+    const uaResolved = ua
+      ? { ua, source: '?ua= 显式指定' }
+      : resolveUserAgent(fetchCfg, callerUA);
+    const fetchOpts = { userAgent: uaResolved.ua, uaSource: uaResolved.source };
 
     log.info('请求进入', {
       target,
@@ -114,6 +118,7 @@ app.get('/sub', async (req, res) => {
       'caller-ua': callerUA || '(空)',
       mode: ua ? 'query' : (fetchCfg.userAgent || 'auto'),
       'send-ua': fetchOpts.userAgent,
+      'ua-source': uaResolved.source,
       include: include || '-',
       exclude: exclude || '-',
     });
@@ -136,8 +141,25 @@ app.get('/sub', async (req, res) => {
       } catch (err) {
         // 日志/响应里隐去订阅地址中的凭据，避免泄漏 token
         const safe = logger.safeUrl(u);
-        failures.push({ url: safe, reason: err.message });
-        log.warn(`拉取订阅 ${i + 1}/${urls.length} 失败`, { url: safe, reason: err.message });
+        // 这里只做一条带编号的短行（requestSubscription 已打过完整诊断），
+        // 但保留 status / net-code，方便没开 DEBUG 时也能直接定位
+        const item = {
+          url: safe,
+          reason: err.failReason || err.message,
+          stage: err.stage,
+          status: err.status,
+          code: err.status ? undefined : err.netCode,
+        };
+        failures.push(item);
+        log.warn(`拉取订阅 ${i + 1}/${urls.length} 失败`, {
+          url: safe,
+          host: logger.hostOf(u),
+          'fail-stage': err.stage,
+          status: err.status,
+          'net-code': err.netCode,
+          reason: item.reason,
+          hint: err.hint,
+        });
       }
     }
 
@@ -156,7 +178,13 @@ app.get('/sub', async (req, res) => {
         ? '订阅源返回了错误状态码：订阅地址可能已失效，或拉取所用 UA 被机场安全规则拦截。请先在「配置界面 → 订阅拉取设置」中选择与你客户端一致的 UA。'
         : '无法连接到订阅源，请检查网络或订阅地址。';
       log.warn('全部订阅拉取失败，终止转换', {
-        failures: failures.map(f => `${f.url} → ${f.reason}`),
+        total: urls.length,
+        'by-stage': logger.countBy(failures, f => f.stage || '其他'),
+        'by-reason': logger.countBy(failures, f => f.reason),
+        'by-net-code': logger.countBy(failures.filter(f => f.code), f => f.code),
+        'ua-used': fetchOpts.userAgent,
+        'ua-source': uaResolved.source,
+        failures: failures.map(f => `${f.url} → ${f.reason}${f.code ? `（${f.code}）` : ''}`),
         hint,
       });
       return res.status(400).json({ error: 'Failed to fetch any subscription', hint, failures });

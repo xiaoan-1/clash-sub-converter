@@ -1,7 +1,7 @@
 const express = require('express');
 const { fetchSubscription } = require('./utils');
 const { readConfig, saveConfig } = require('./user-config');
-const { listPresets, pickUserAgent } = require('./user-agents');
+const { listPresets, resolveUserAgent } = require('./user-agents');
 const { parseSubscription, parseSubscriptionList, extractClashDns } = require('./parser');
 const { isDomestic, CN_LABEL } = require('./proxy-groups');
 const { ruleManager } = require('./rule-manager');
@@ -15,14 +15,16 @@ const router = express.Router();
 // ===================== 工具函数 =====================
 
 /**
- * 解析本次拉取应使用的 UA
+ * 解析本次拉取应使用的 UA，并带上它的来源（仅用于日志）
  * @param {Object} req      express 请求
  * @param {string} override 请求体里显式指定的 UA（优先级最高）
  */
 function uaOptions(req, override) {
   const { fetch: fetchCfg = {} } = readConfig();
   const callerUA = req.get('user-agent') || '';
-  return { userAgent: override || pickUserAgent(fetchCfg, callerUA) };
+  if (override) return { userAgent: override, uaSource: '请求体显式指定' };
+  const resolved = resolveUserAgent(fetchCfg, callerUA);
+  return { userAgent: resolved.ua, uaSource: resolved.source };
 }
 
 /**
@@ -59,7 +61,9 @@ router.post('/parse', async (req, res) => {
       return res.status(400).json({ error: '缺少 url 参数' });
     }
 
-    const content = await fetchSubscription(url, uaOptions(req, userAgent));
+    const uaOpts = uaOptions(req, userAgent);
+    log.debug('拉取 UA 已确定', { ua: uaOpts.userAgent, 'ua-source': uaOpts.uaSource });
+    const content = await fetchSubscription(url, uaOpts);
     const proxies = parseSubscription(content);
 
     const nodes = proxies.map(p => ({
@@ -140,6 +144,11 @@ router.post('/convert', async (req, res) => {
 
     // 保留每一份订阅的原始文本，分别解析后再合并
     const sources = [];
+    // 拉取失败的记录，脚本末尾统一汇总（每份一条，不刷屏）
+    const fetchFailures = [];
+    // 实际使用的 UA 与来源，失败汇总时要回显——UA 被机场拉黑是常见原因
+    let usedUa = '';
+    let usedUaSource = '';
 
     // 支持两种来源：URL 或直接内容（文件上传）
     if (rawContent && rawContent.trim()) {
@@ -151,7 +160,9 @@ router.post('/convert', async (req, res) => {
         return res.status(400).json({ error: '缺少订阅链接' });
       }
       const fetchOpts = uaOptions(req, userAgent);
-      clog.debug('拉取 UA 已确定', { ua: fetchOpts.userAgent });
+      usedUa = fetchOpts.userAgent;
+      usedUaSource = fetchOpts.uaSource;
+      clog.debug('拉取 UA 已确定', { ua: fetchOpts.userAgent, 'ua-source': fetchOpts.uaSource });
       for (let i = 0; i < urls.length; i++) {
         const u = urls[i];
         try {
@@ -159,16 +170,41 @@ router.post('/convert', async (req, res) => {
           sources.push(await fetchSubscription(u, fetchOpts));
         } catch (err) {
           // 必须脱敏：订阅地址里的 token 不能进日志
+          const safe = logger.safeUrl(u);
+          fetchFailures.push({
+            url: safe,
+            reason: err.failReason || err.message,
+            stage: err.stage,
+            status: err.status,
+            code: err.status ? undefined : err.netCode,
+          });
           clog.warn(`拉取订阅 ${i + 1}/${urls.length} 失败`, {
-            url: logger.safeUrl(u),
-            reason: err.message,
+            url: safe,
+            host: logger.hostOf(u),
+            'fail-stage': err.stage,
+            status: err.status,
+            'net-code': err.netCode,
+            reason: err.failReason || err.message,
+            hint: err.hint,
           });
         }
       }
     }
 
     if (!sources.some(s => s && s.trim())) {
-      clog.warn('无法获取任何订阅内容，终止转换', { attempted: urls.length });
+      clog.warn('无法获取任何订阅内容，终止转换', {
+        attempted: urls.length,
+        'by-stage': fetchFailures.length ? logger.countBy(fetchFailures, f => f.stage || '其他') : undefined,
+        'by-reason': fetchFailures.length ? logger.countBy(fetchFailures, f => f.reason) : undefined,
+        'by-net-code': fetchFailures.some(f => f.code)
+          ? logger.countBy(fetchFailures.filter(f => f.code), f => f.code)
+          : undefined,
+        'ua-used': usedUa || undefined,
+        'ua-source': usedUaSource || undefined,
+        failures: fetchFailures.length
+          ? fetchFailures.map(f => `${f.url} → ${f.reason}${f.code ? `（${f.code}）` : ''}`)
+          : undefined,
+      });
       return res.status(400).json({ error: '无法获取任何订阅内容' });
     }
 

@@ -50,6 +50,12 @@ const MAX_VALUE_LEN = 400;
 /** 数组最多展示的元素个数 */
 const MAX_ARRAY_ITEMS = 20;
 
+/** 响应正文预览的最大长度（订阅失败时用来放机场返回的错误说明） */
+const MAX_PREVIEW_LEN = 300;
+
+/** 正文预览超过这个体积就不读了，避免把大文件拉进内存 */
+const MAX_PREVIEW_SOURCE_BYTES = 1024 * 1024;
+
 let dirReady = false;
 let fileBroken = false;
 
@@ -134,6 +140,149 @@ function stackOf(err) {
   return truncate(lines.replace(/\s+/g, ' '));
 }
 
+// ===================== 错误与安全文本处理 =====================
+
+/** 看起来像凭据的键名（查询串 / JSON / kv 三种形态共用） */
+const SECRET_KEYS = 'token|sub|code|key|auth|pwd|passwd|password|sign|secret|access_key';
+const RE_SECRET_QUERY = new RegExp(`([?&](?:${SECRET_KEYS})=)[^&#\\s]*`, 'gi');
+// 键值形态：兼容 `token=xxx`、`"token":"xxx"`、`'token': 'xxx'`。
+// 注意 JSON 里键名的闭合引号在冒号**之前**，所以 `("|')?` 要出现两次；
+// 引号（$2/$4）保留，只把值换成 ***，保证 JSON 预览仍是合法片段。
+const RE_SECRET_KV = new RegExp(
+  `\\b(${SECRET_KEYS})("|')?(\\s*[=:]\\s*)("|')?(?!\\*{3})[^\\s,;"'\\\\}?&#/|]+`,
+  'gi'
+);
+
+/** 把文本里形如 token=xxx / "password":"xxx" 的凭据值抹成 *** */
+function redactSecrets(raw) {
+  return String(raw === null || raw === undefined ? '' : raw)
+    .replace(RE_SECRET_QUERY, '$1***')
+    .replace(RE_SECRET_KV, '$1$2$3$4***');
+}
+
+/**
+ * 生成一段可安全落盘的响应正文预览。
+ *
+ * 订阅拉取失败时机场往往会在正文里写明原因（`token 已失效` / `订阅已过期` /
+ * `请求过于频繁`），这是排查里信息量最大的一条，必须记下来；
+ * 但正文也可能夹带 token，所以统一过一遍 redactSecrets。
+ */
+function preview(raw, limit = MAX_PREVIEW_LEN) {
+  if (raw === null || raw === undefined) return '';
+  const text = String(raw);
+  if (!text) return '(空)';
+  // 压缩 / 二进制内容（gzip 未被 fetch 解开、或对端返回了图片）肉眼不可读
+  if (/[\u0000-\u0008\u000e-\u001f]/.test(text)) return '(二进制内容，已省略)';
+
+  const flat = redactSecrets(text).replace(/\s+/g, ' ').trim();
+  if (!flat) return '(空白内容)';
+  return truncate(flat.length > limit ? `${flat.slice(0, limit)}…` : flat);
+}
+
+/**
+ * 网络错误码 → 人话。
+ *
+ * Node 的 fetch 把所有网络层失败统一报成 `fetch failed`，真正的原因在
+ * `err.cause.code` 上。不翻译一遍的话，日志上只有一句「fetch failed」，
+ * 完全无法判断是 DNS 问题、证书问题，还是机场风控主动断开。
+ */
+const NET_HINTS = {
+  ENOTFOUND: '域名解析失败：DNS 查不到该主机，检查订阅地址是否写错',
+  EAI_AGAIN: 'DNS 临时故障：解析超时，通常是本机 DNS 或网络问题',
+  ECONNREFUSED: '连接被拒绝：对端未在该端口监听，或被防火墙拦截',
+  ECONNRESET: '连接被重置：对端主动断开，常见于代理 / 机场风控',
+  ETIMEDOUT: 'TCP 连接超时：网络不通或对端无响应',
+  EPIPE: '连接被对端关闭',
+  EHOSTUNREACH: '主机不可达：路由问题',
+  ENETUNREACH: '网络不可达：本机没有到该网段的路由',
+  CERT_HAS_EXPIRED: 'TLS 证书已过期',
+  DEPTH_ZERO_SELF_SIGNED_CERT: 'TLS 自签名证书：对端证书不被信任',
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'TLS 证书链无法验证：缺中间证书，或链路上有 MITM 代理',
+  UNABLE_TO_GET_ISSUER_CERT_LOCALLY: 'TLS 缺少根证书：系统 CA 不完整',
+  ERR_TLS_CERT_ALTNAME_INVALID: 'TLS 证书域名不匹配：可能被中间人代理',
+  ERR_SSL_WRONG_VERSION_NUMBER: 'TLS 握手失败：该端口可能不是 HTTPS',
+  UND_ERR_CONNECT_TIMEOUT: '建立连接超时：对端不可达',
+  UND_ERR_HEADERS_TIMEOUT: '等待响应头超时：已连上但对端不返回数据',
+  UND_ERR_BODY_TIMEOUT: '读取响应正文超时',
+  UND_ERR_SOCKET: '连接异常中断',
+  UND_ERR_ABORTED: '请求被中止（通常是超时触发）',
+};
+
+/**
+ * 把一个异常摊平成可直接写进日志的字段。
+ *
+ * 会顺着 `cause` 链向下找 4 层：Node fetch 的 `fetch failed` 本身没有任何信息，
+ * 必须靠 cause 才能看到 ENOTFOUND / ECONNREFUSED / UND_ERR_* 这些真正的错误码。
+ */
+function describeError(err) {
+  if (!err) return {};
+  const out = { reason: String(err.message || err) };
+  if (err.code) out.code = String(err.code);
+
+  const chain = [];
+  const codes = [];
+  const details = [];
+
+  for (let cur = err.cause, depth = 0; cur && depth < 4; cur = cur.cause, depth++) {
+    const head = cur.code || (cur.name && cur.name !== 'Error' ? cur.name : '');
+    chain.push([head, cur.message].filter(Boolean).join(' ') || String(cur));
+    if (cur.code) codes.push(String(cur.code));
+    // syscall / 地址等定位信息（不同 Node 版本挂的层级不同，收集第一个命中的）
+    if (!details.length && (cur.syscall || cur.hostname || cur.address)) {
+      const parts = [];
+      if (cur.syscall) parts.push(`syscall=${cur.syscall}`);
+      if (cur.hostname) parts.push(`host=${cur.hostname}`);
+      if (cur.address) parts.push(`addr=${cur.address}${cur.port ? ':' + cur.port : ''}`);
+      details.push(parts.join(' '));
+    }
+  }
+
+  if (chain.length) out['net-cause'] = chain.join(' → ');
+  if (details.length) out['net-detail'] = details[0];
+
+  const netCode = codes[0];
+  if (netCode) {
+    out['net-code'] = netCode;
+    const hint = NET_HINTS[netCode];
+    if (hint) out['net-hint'] = hint;
+  }
+  return out;
+}
+
+/** 从 URL 里取 host（含端口），取不到时返回 '-' */
+function hostOf(raw) {
+  try {
+    return new URL(String(raw)).host || '-';
+  } catch {
+    return '-';
+  }
+}
+
+/**
+ * HTTP 状态码 → 排查建议。订阅拉取失败时跟着日志一起打出。
+ */
+const HTTP_HINTS = {
+  400: '请求被拒：订阅地址参数不完整或被改写',
+  401: '未授权：token 无效或已过期',
+  403: '禁止访问：订阅地址已失效，或拉取所用 UA 被机场安全规则拦截',
+  404: '找不到该地址：订阅路径写错，或订阅已被机场删除',
+  406: '对端不接受本次请求：UA / Accept 头被识别为异常客户端',
+  429: '请求过于频繁：被机场限流，稍后重试',
+  451: '因法律原因不可用：该订阅在当前地区被限制',
+  500: '机场服务端错误：与本地无关，联系机场',
+  502: '网关错误：机场上游异常',
+  503: '服务不可用：机场维护或过载',
+  504: '网关超时：机场上游超时',
+};
+
+function httpHint(status) {
+  const s = Number(status);
+  if (HTTP_HINTS[s]) return HTTP_HINTS[s];
+  if (s >= 500) return '机场服务端错误：与本地无关';
+  if (s >= 400) return '请求被拒绝：订阅地址可能已失效';
+  return undefined;
+}
+
 function write(level, scope, msg, data) {
   let line = `${timestamp()} ${level.toUpperCase().padEnd(5)} [${scope}] ${msg}`;
 
@@ -172,15 +321,23 @@ function create(scope) {
     warn: (msg, data) => write('warn', s, msg, data),
     error: (msg, data) => write('error', s, msg, data),
     /**
-     * 记录一个异常（含截断的调用栈）。catch 块统一用它，
-     * 避免各处手写 err.message / err.stack 时漏掉栈。
+     * 记录一个异常（含截断的调用栈与网络错误码）。catch 块统一用它，
+     * 避免各处手写 err.message / err.stack 时漏掉栈，也避免只写下一句
+     * 毫无信息量的 `fetch failed`。
      */
-    fail: (msg, err, data) => write('error', s, msg, {
-      err: err && (err.message || String(err)),
-      code: err && err.code,
-      ...(data || {}),
-      stack: stackOf(err),
-    }),
+    fail: (msg, err, data) => {
+      const d = describeError(err);
+      return write('error', s, msg, {
+        err: d.reason,
+        code: d.code,
+        'net-code': d['net-code'],
+        'net-hint': d['net-hint'],
+        'net-cause': d['net-cause'],
+        'net-detail': d['net-detail'],
+        ...(data || {}),
+        stack: stackOf(err),
+      });
+    },
   };
 }
 
@@ -222,7 +379,7 @@ function safeUrl(raw) {
   // https://user:pass@host/... → https://host/...
   s = s.replace(/\/\/[^@/]*@/g, '//');
   // ?token=xxx&code=yyy → ?token=***&code=***
-  s = s.replace(/([?&](?:token|sub|code|key|auth|pwd|passwd|password|sign|secret|access_key)=)[^&#\s]*/gi, '$1***');
+  s = redactSecrets(s);
   // /AbCd1234...(≥24 位) → /***
   s = s.replace(/(\/[A-Za-z0-9_-]{24,})(?=[/?&#]|$)/g, '/***');
   return truncate(s);
@@ -245,6 +402,11 @@ module.exports = {
   formatMs,
   formatBytes,
   safeUrl,
+  preview,
+  hostOf,
+  httpHint,
+  describeError,
+  redactSecrets,
   countBy,
   // 供测试与诊断
   LOG_DIR,
