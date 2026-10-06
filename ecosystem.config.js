@@ -9,6 +9,11 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 25500,
+      // 监听地址：服务器上与 nginx 同机部署，只绑回环 → 25500 对外不可达，
+      // 外部只能走 nginx 的 80/443，不会被绕过 HTTPS / 限流直连端口。
+      // ⚠️ 本机（Windows）调试想局域网直连时，改回 '0.0.0.0'。
+      // ⚠️ 若 app 跑在 Docker 里，nginx 那一跳不是回环地址，见下方 TRUST_PROXY。
+      HOST: '127.0.0.1',
       // 日志级别由 src/logger.js 读取：
       //   LOG_LEVEL         写入 logs/app.log 的最低级别（默认 debug，即全量）
       //   LOG_CONSOLE_LEVEL 输出到控制台的最低级别（默认 info）
@@ -19,17 +24,29 @@ module.exports = {
       // ---- 访客配置（按访问者 IP 隔离，见 src/guests.js）----
       // 管理员 IP：这些 IP 访问时用的仍然是 config.json（站点基准），其余访客
       // 各用 guests/<IP>.json。多个用逗号分隔。
-      //   注意：留空且未设 TRUST_PROXY 时，只有 127.0.0.1 算管理员。
-      ADMIN_IPS: '127.0.0.1',
+      // ⚠️ 已开启反代，这里必须填你**访问时对外暴露的 IP**（如家里宽带/公司的
+      //    公网 IP，或固定 VPN / 内网 IP），填 127.0.0.1 没用 —— req.ip 拿到的是
+      //    nginx 透传的真实客户端地址，不是回环。
+      ADMIN_IPS: '',
       // 反向代理：部署在 Nginx / Caddy 后面时必须设置，否则 req.ip 恒为
       // 127.0.0.1，所有访客会被判定成同一个人。
       //   未设置/0/false 关闭       1/true 信任最近一跳（都按数字 1 处理）
       //   loopback 只信任回环（推荐）  10.0.0.0/8 信任指定网段   数字 信任前 N 跳
+      // 服务器上与 nginx 同机 → 'loopback'（nginx 从 127.0.0.1 连进来）。
       // ⚠️ 不要写布尔 true —— 那在 Express 里是「信任所有跳」，req.ip 会取
       //    X-Forwarded-For 的最左值，等于把客户端可伪造的字段当成真实来源。
-      // ⚠️ 设了 TRUST_PROXY 后回环地址不再算管理员，必须把管理员的真实公网 IP
-      //    填进 ADMIN_IPS，否则没人能改站点基准。
-      TRUST_PROXY: ''
+      // ⚠️ 开启后回环地址不再算管理员，ADMIN_IPS 留空则没人能改站点基准。
+      // ⚠️ 若 app 在 Docker 里，'loopback' 不适用（那一跳是 172.x 网桥地址），
+      //    改成对应网段如 '172.17.0.0/16' 或直接 '1'。
+      TRUST_PROXY: 'loopback',
+
+      // 部署子路径：想让服务挂在 http://域名/clash/ 下时设为 '/clash'，
+      // 同时 nginx 的 proxy_pass 结尾【不要】带 /（保留 /clash 前缀）。
+      // 若 nginx 那边已经剥掉了 /clash（proxy_pass 结尾带 /），这里必须留空。
+      // ⚠️ 前端页面里的接口与静态资源目前是根绝对路径（/config.css、/api/config、
+      //    /sub…），保留前缀的写法下浏览器会去请求 域名/config.css，落到 /clash
+      //    之外被 nginx 直接 404。此时要么把前端改成相对路径，要么改用剥前缀写法。
+      BASE_PATH: ''
     },
     // 注意：应用自带的日志写入 ./logs/app.log 与 ./logs/error.log（见 src/logger.js）。
     // PM2 自己的输出文件必须换成别的名字，否则两个写入方会交错破坏日志行。

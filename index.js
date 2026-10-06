@@ -13,6 +13,31 @@ const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 25500;
+// 监听地址：默认 0.0.0.0（所有网卡，局域网/容器都能访问，与改动前一致）。
+// 只想本机访问、不暴露到局域网时设 HOST=127.0.0.1。
+const HOST = process.env.HOST || '0.0.0.0';
+
+/**
+ * 部署子路径（默认空 = 直接挂在根路径，行为与以前完全一致）。
+ *
+ * 设 BASE_PATH=/clash 后，服务自身全部路由挪到 /clash 之下：
+ *   /clash/             使用说明页（/clash 会 301 过来）
+ *   /clash/config  /clash/cfg   配置界面
+ *   /clash/api/...      配置接口
+ *   /clash/sub          订阅转换
+ *
+ * ⚠️ 这里只改了服务端路由。页面里引用资源用的是根绝对路径（/config.css、/api/config），
+ *    若 nginx 用「保留前缀」方式代理（proxy_pass 结尾不带 /），浏览器会去请求
+ *    域名/config.css，落到 /clash/ 之外，nginx 直接 404。要让它完整可用，
+ *    需二选一：把前端引用改成相对路径，或改用「剥掉前缀」方式代理
+ *    （proxy_pass http://127.0.0.1:25500/），后者连 BASE_PATH 都不必设。
+ */
+function normalizeBasePath(raw) {
+  const v = String(raw || '').trim().replace(/\/+$/, '');
+  if (!v || v === '/') return '';
+  return v.startsWith('/') ? v : `/${v}`;
+}
+const BASE_PATH = normalizeBasePath(process.env.BASE_PATH);
 
 // 反向代理后面必须设置 TRUST_PROXY，否则 req.ip 恒为 127.0.0.1，
 // 所有访客会被判定成同一个人（详见 src/guests.js）
@@ -21,23 +46,27 @@ app.set('trust proxy', TRUST_PROXY);
 
 const bootLog = logger.create('app');
 
-// 获取本机局域网 IP
-function getLocalIP() {
+// 获取本机所有局域网 IPv4（可能有不止一张网卡：有线 + 无线 + Docker/虚拟机虚拟网卡）
+function getLocalIPs() {
+  const out = [];
   const nets = os.networkInterfaces();
   for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (net.family === 'IPv4' && !net.internal) {
-        return net.address;
-      }
+    for (const net of nets[name] || []) {
+      if (net.family === 'IPv4' && !net.internal) out.push(net.address);
     }
   }
-  return '127.0.0.1';
+  return out;
 }
 
 // 中间件
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-app.use((req, res, next) => {
+
+// 所有路由都注册在这个 router 上，最后整体挂到 BASE_PATH。
+// 这样内部路径（/config、/api/...、/sub）无论部署在哪一级都不用改。
+const router = express.Router();
+
+router.use(express.static(path.join(__dirname, 'public')));
+router.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   // 订阅元信息走自定义响应头（subscription-userinfo 等），
   // 浏览器调用时需要显式暴露才能读到。
@@ -51,16 +80,16 @@ app.use((req, res, next) => {
 
 // ===================== 路由 =====================
 
-// 配置页面
-app.get('/config', (req, res) => {
+// 配置页面（/cfg 是 /config 的短别名，子路径部署时可以访问 域名/clash/cfg）
+router.get(['/config', '/cfg'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'config.html'));
 });
 
 // 配置 API
-app.use('/api', apiRouter);
+router.use('/api', apiRouter);
 
 // 首页
-app.get('/', (req, res) => {
+router.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
@@ -77,7 +106,7 @@ app.get('/', (req, res) => {
  *   - sort   保持订阅原有顺序
  *   - config 本服务自带分组 / 规则体系，不套用外部模板
  */
-app.get('/sub', async (req, res) => {
+router.get('/sub', async (req, res) => {
   // 每次请求一个编号，同一请求的多行日志都能用 [sub#xxxxxx] 串起来
   const log = logger.create(`sub#${logger.reqId()}`);
   const timer = logger.timer();
@@ -269,42 +298,60 @@ app.get('/sub', async (req, res) => {
   }
 });
 
-// ===================== 启动 =====================
+// ===================== 挂载与启动 =====================
+
+// 部署在子路径时，域名/clash（不带尾斜杠）301 到 域名/clash/：
+// 统一子路径下的地址形式；将来前端若改用相对路径引用，缺了尾斜杠会被解析到上一级去。
+// 必须注册在 app.use(BASE_PATH, router) 之前，否则会被 router 的 '/' 抢先生效。
+// 注意：Express 默认不区分尾斜杠，app.get('/clash') 连 '/clash/' 也会命中，
+// 那样重定向目标又落回自己，会无限循环 —— 所以这里显式比对 req.path。
+if (BASE_PATH) {
+  app.get(BASE_PATH, (req, res, next) => {
+    if (req.path !== BASE_PATH) return next();
+    res.redirect(301, `${BASE_PATH}/`);
+  });
+}
+
+// 根路径部署时为 '/'，子路径部署时为 '/clash'
+app.use(BASE_PATH || '/', router);
 
 // 启动服务
-app.listen(PORT, () => {
-  const localIP = getLocalIP();
-  const base = `http://${localIP}:${PORT}`;
+app.listen(PORT, HOST, () => {
+  // 部署子路径时把前缀一并打出来，免得照着终端里的地址去填 OpenClash 却是 404
+  const p = BASE_PATH;
+  const ips = getLocalIPs();
+  // 示例地址用第一张网卡的 IP；仅监听指定地址时就用该地址
+  const base = `http://${HOST === '0.0.0.0' ? ips[0] || '127.0.0.1' : HOST}:${PORT}${p}`;
+  const adminList = guests.adminIps(TRUST_PROXY);
+  const guestCount = guests.listGuestIds().length;
+
   console.log(`\n🚀 Clash 订阅转换器已启动（端口 ${PORT}）\n`);
-  console.log(`   ① 使用说明页 — 浏览器打开，查看部署步骤与用法`);
-  console.log(`      ${base}/`);
-  console.log(`   ② 配置界面 — 浏览器打开，管理订阅链接 / 节点过滤 / 分组策略`);
-  console.log(`      ${base}/config`);
-  console.log(`   ③ 订阅转换地址 — 填入 OpenClash，必须带 url 参数`);
-  console.log(`      ${base}/sub?target=clash&url=<订阅链接>`);
-  console.log(`\n   本机访问可用 http://127.0.0.1:${PORT}\n`);
+  console.log(`   使用说明页  ${base}/`);
+  console.log(`   配置界面    ${base}/config${p ? `   （${p}/cfg 亦可）` : ''}`);
+  console.log(`   订阅转换    ${base}/sub?target=clash&url=<订阅链接>`);
+
+  // 监听范围：想给手机 / 其他设备填地址时看这一行
+  console.log('');
+  console.log(HOST === '0.0.0.0'
+    ? `   监听 0.0.0.0:${PORT}${p}（本机 127.0.0.1 / 网卡 ${ips.join(' / ') || '无'}）`
+    : `   监听 ${HOST}:${PORT}${p}（未绑 0.0.0.0，局域网其他设备访问不到）`);
 
   // 访客隔离最容易出事的地方是「以为在隔离，其实全用同一份配置」，所以启动时
   // 把判定依据（管理员 IP 列表 / 是否启用反代）直接打在控制台上
-  const adminList = guests.adminIps(TRUST_PROXY);
-  const guestCount = guests.listGuestIds().length;
-  console.log(`   ④ 访客配置 — 一个访客一个文件，互不影响`);
-  console.log(`      guests/ 已有 ${guestCount} 个访客`);
-  console.log(`      管理员 IP（改的是 config.json 站点基准）：${adminList.join(', ') || '(空，请在 ADMIN_IPS 里配置)'}`);
-  console.log(`      其他访问者各自使用 guests/<IP>.json（首次保存配置时创建）`);
+  console.log(`   访客 ${guestCount} 个文件 · 管理员 ${adminList.join(', ') || '(空，请在 ADMIN_IPS 里配置)'} · 反向代理 ${TRUST_PROXY ? '已启用' : '未启用'}`);
   if (!TRUST_PROXY) {
-    console.log(`      ⚠  未启用反向代理支持（TRUST_PROXY 未设置）`);
-    console.log(`         部署在 Nginx / Caddy 后面时请设置 TRUST_PROXY，否则 req.ip 恒为`);
-    console.log(`         127.0.0.1，所有访客会被当成同一个人。`);
+    console.log(`   ⚠ 未设 TRUST_PROXY：在 Nginx / Caddy 后面时 req.ip 恒为 127.0.0.1，所有访客会被当成同一个人`);
   }
   console.log('');
 
   bootLog.info('服务已启动', {
     port: PORT,
+    host: HOST,
     url: base,
     pid: process.pid,
     node: process.version,
     env: process.env.NODE_ENV || 'development',
+    'base-path': BASE_PATH || '/',
     'app.log': logger.APP_LOG,
     'file-level': logger.level.fileName,
     'console-level': logger.level.consoleName,
