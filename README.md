@@ -50,6 +50,9 @@ npm run status   # 状态
 每一行都带毫秒时间戳与请求编号。排查方法、级别控制与环境变量见
 [docs/日志与排查.md](docs/日志与排查.md)。
 
+> 若订阅转换正常、但导入 OpenClash 后**节点全部无法使用**，多半是客户端 DNS 问题
+> （而非本项目）—— 见 [docs/OpenClash-DNS排查.md](docs/OpenClash-DNS排查.md)。
+
 
 ### 开发模式
 
@@ -112,7 +115,8 @@ clash-sub-converter/
     ├── 代理协议解析.md         # 各协议解析结果结构
     ├── 配置文件格式说明.md     # 输入输出格式规范
     ├── 配置组装详解.md         # converter.js 内部细节
-    └── 日志与排查.md           # 日志格式 / 级别 / 常见问题排查方法
+    ├── 日志与排查.md           # 日志格式 / 级别 / 常见问题排查方法
+    └── OpenClash-DNS排查.md    # OpenClash DNS 开关 / 名单 / 节点全挂
 ```
 
 ## API 接口
