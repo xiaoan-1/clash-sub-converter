@@ -270,7 +270,17 @@ function ruleGroupKeys() {
 }
 
 /**
+ * 字面量退化匹配时，允许「别名包含该片段」的最短片段长度。
+ * 切词后可能留下单字符残片（例如畸形串 netfli|x 里的 x），
+ * 限制长度可避免它命中 pixiv 这类含该字符的别名。
+ */
+const MIN_FRAGMENT_LEN = 3;
+
+/**
  * 正则模式匹配规则组
+ *
+ * include/exclude 由 OpenClash 透传，绝大多数是合法正则，走 try 分支。
+ * 少数用户会填出无法编译的串，此时退化为字面量猜测。
  */
 function patternMatchGroup(pattern, groupKey) {
   if (!pattern) return false;
@@ -281,8 +291,19 @@ function patternMatchGroup(pattern, groupKey) {
     const re = new RegExp(clean, 'i');
     return candidates.some(a => re.test(a));
   } catch {
-    const lower = clean.toLowerCase();
-    return candidates.some(a => a.includes(lower) || lower.includes(a));
+    // 非法正则：退化为字面量匹配，但必须先按分隔符切词，不能对整串做子串匹配。
+    // 原实现是双向子串（别名含原文 || 原文含别名），反向那一支没有词边界，
+    // 两三个字母的别名会命中毫不相干的词：
+    //   confirm[ → nf → netflix      high[ / weight[ → gh → github
+    //   pixel[   → pix → pixiv
+    // 于是 exclude 会静默关掉用户根本没提过的整组规则；同时反向还会漏掉
+    // (?i)steam[ 这种「别名含原文」本应命中的情况（原文尾部粘着 [ 导致整串匹配失败）。
+    // 切词后：整词相等一律认；「别名包含该片段」限制在 >= MIN_FRAGMENT_LEN。
+    const tokens = clean.toLowerCase().split(/[^a-z0-9\u4e00-\u9fff]+/).filter(Boolean);
+    return tokens.some(t => candidates.some(a => {
+      const alias = a.toLowerCase();
+      return alias === t || (t.length >= MIN_FRAGMENT_LEN && alias.includes(t));
+    }));
   }
 }
 
