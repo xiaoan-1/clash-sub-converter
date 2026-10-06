@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { parseSubscription, extractClashDns } = require('./src/parser');
+const { parseSubscriptionList, extractClashDns } = require('./src/parser');
 const { convertToClash, convertToSurge } = require('./src/converter');
 const { requestSubscription, parseRuleOptions, applySubscriptionHeaders } = require('./src/utils');const { readConfig } = require('./src/user-config');
 const { pickUserAgent } = require('./src/user-agents');
@@ -122,24 +122,9 @@ app.get('/sub', async (req, res) => {
       return res.status(400).json({ error: 'Failed to fetch any subscription', hint, failures });
     }
 
-    const proxies = [];
     // 多订阅必须分别解析再合并：把多份 YAML 直接拼接会产生重复根键，
     // yaml.load 会直接失败（表现为「No valid proxies found」）。
-    const sources = metas.length > 1 ? metas.map(m => m.text) : [allContent];
-    const seenNames = new Set();
-    let dropped = 0;
-    for (const text of sources) {
-      for (const proxy of parseSubscription(text)) {
-        const name = String(proxy.name || '').trim();
-        // mihomo 不允许代理重名，合并多份订阅时保留先出现的那个
-        if (name && seenNames.has(name)) {
-          dropped++;
-          continue;
-        }
-        if (name) seenNames.add(name);
-        proxies.push(proxy);
-      }
-    }
+    const { proxies, dropped } = parseSubscriptionList(metas.map(m => m.text));
     if (dropped) console.log(`[sub] 合并多订阅时丢弃 ${dropped} 个同名节点`);
 
     if (proxies.length === 0) {
@@ -164,7 +149,7 @@ app.get('/sub', async (req, res) => {
       res.type('text/plain').send(convertToSurge(proxies, { ruleOptions }));
     } else {
       // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
-      const srcDns = extractClashDns(sources[0]);
+      const srcDns = extractClashDns(metas[0].text);
       const convertOptions = { ruleOptions };
       if (srcDns) convertOptions.dns = srcDns;
       res.type('text/yaml').send(convertToClash(proxies, convertOptions).yaml);

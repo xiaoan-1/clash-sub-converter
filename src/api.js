@@ -2,7 +2,7 @@ const express = require('express');
 const { fetchSubscription } = require('./utils');
 const { readConfig, saveConfig } = require('./user-config');
 const { listPresets, pickUserAgent } = require('./user-agents');
-const { parseSubscription, extractClashDns } = require('./parser');
+const { parseSubscription, parseSubscriptionList, extractClashDns } = require('./parser');
 const { isDomestic, CN_LABEL } = require('./proxy-groups');
 const { ruleManager } = require('./rule-manager');
 const { convertToClash } = require('./converter');
@@ -93,11 +93,12 @@ router.post('/convert', async (req, res) => {
   try {
     const { urls = [], nodeFilter = 'all', excludeKeywords = [], rawContent, userAgent } = req.body;
 
-    let allContent = '';
+    // 保留每一份订阅的原始文本，分别解析后再合并
+    const sources = [];
 
     // 支持两种来源：URL 或直接内容（文件上传）
     if (rawContent && rawContent.trim()) {
-      allContent = rawContent;
+      sources.push(rawContent);
     } else {
       if (!urls.length) {
         return res.status(400).json({ error: '缺少订阅链接' });
@@ -105,19 +106,19 @@ router.post('/convert', async (req, res) => {
       const fetchOpts = uaOptions(req, userAgent);
       for (const u of urls) {
         try {
-          const text = await fetchSubscription(u, fetchOpts);
-          allContent += (allContent ? '\n' : '') + text;
+          sources.push(await fetchSubscription(u, fetchOpts));
         } catch (err) {
           console.warn(`[api/convert] 获取失败: ${u} - ${err.message}`);
         }
       }
     }
 
-    if (!allContent) {
+    if (!sources.some(s => s && s.trim())) {
       return res.status(400).json({ error: '无法获取任何订阅内容' });
     }
 
-    const proxies = parseSubscription(allContent);
+    const { proxies, dropped } = parseSubscriptionList(sources);
+    if (dropped) console.warn(`[api/convert] 合并多订阅时丢弃 ${dropped} 个同名节点`);
     if (proxies.length === 0) {
       return res.status(400).json({ error: '未找到有效代理节点' });
     }
@@ -129,7 +130,7 @@ router.post('/convert', async (req, res) => {
     };
 
     // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
-    const srcDns = extractClashDns(allContent);
+    const srcDns = sources.map(extractClashDns).find(Boolean);
     const convertOptions = { nodeFilters, excludeKeywords };
     if (srcDns) convertOptions.dns = srcDns;
 

@@ -137,6 +137,42 @@ function parseSubscription(content) {
 }
 
 /**
+ * 解析多份订阅内容并合并为一个节点数组。
+ *
+ * 多订阅必须「先分别解析、再合并」：把多份 Clash YAML 直接拼接会产生重复根键，
+ * yaml.load 会直接抛错，最终表现为一个节点都拿不到。
+ * 另外 mihomo 不允许代理重名，因此同名节点只保留最先出现的那一个。
+ *
+ * @param {string[]} sources 每份订阅的原始文本
+ * @returns {{ proxies: Array, dropped: number }} dropped 为因重名被丢弃的节点数
+ */
+function parseSubscriptionList(sources = []) {
+  const proxies = [];
+  const seenNames = new Set();
+  let dropped = 0;
+
+  for (const text of sources) {
+    if (!text || !String(text).trim()) continue;
+
+    for (const proxy of parseSubscription(text)) {
+      const name = String(proxy.name || '').trim();
+      if (!name) {
+        proxies.push(proxy);
+        continue;
+      }
+      if (seenNames.has(name)) {
+        dropped++;
+        continue;
+      }
+      seenNames.add(name);
+      proxies.push(proxy);
+    }
+  }
+
+  return { proxies, dropped };
+}
+
+/**
  * 解析 VMess 链接
  * 格式: vmess://base64({json})
  */
@@ -409,6 +445,7 @@ function parseHysteria2(link) {
 
 module.exports = {
   parseSubscription,
+  parseSubscriptionList,
   extractClashDns
 };
 
