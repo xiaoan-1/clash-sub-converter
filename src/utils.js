@@ -320,13 +320,14 @@ function ruleGroupKeys() {
 function patternMatchGroup(pattern, groupKey) {
   if (!pattern) return false;
   const clean = pattern.replace(/^\(\?i\)/, '');
-  const aliases = RULE_GROUP_ALIASES[groupKey] || [groupKey];
+  // 自身 id 始终作为候选：别名表若漏写自身 id，该组会静默失效（本次修过的同类 bug）
+  const candidates = [groupKey, ...(RULE_GROUP_ALIASES[groupKey] || [])];
   try {
     const re = new RegExp(clean, 'i');
-    return aliases.some(a => re.test(a));
+    return candidates.some(a => re.test(a));
   } catch {
     const lower = clean.toLowerCase();
-    return aliases.some(a => a.includes(lower) || lower.includes(a));
+    return candidates.some(a => a.includes(lower) || lower.includes(a));
   }
 }
 
