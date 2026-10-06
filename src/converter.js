@@ -22,11 +22,15 @@ class AllProxiesFilteredError extends Error {
 
 /**
  * 解析本次转换要用的用户配置。
- * options 显式传入的优先（API 可以按请求覆盖），否则回退到 config.json。
+ * options 显式传入的优先（API 可以按请求覆盖），否则回退到配置文件。
  * Clash 与 Surge 共用，保证两个入口的过滤/分组策略一致。
+ *
+ * options.guestId 决定读哪一份配置：null/未传 = 站点基准，否则读该访客的配置。
+ * 必须由调用方从请求里解析后传进来 —— 转换器本身拿不到 req，
+ * 若在这里自己猜，访客就会拿到管理员的分组策略。
  */
 function resolveUserConfig(options = {}) {
-  const userConfig = readConfig();
+  const userConfig = readConfig(options.guestId);
   return {
     userGroups: options.userGroups || userConfig?.groups || [],
     nodeFilters: options.nodeFilters || userConfig?.nodeFilters || {},

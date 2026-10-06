@@ -19,13 +19,17 @@ window.addEventListener('DOMContentLoaded', function() {
 // ========== 配置加载 ==========
 
 /**
- * 从服务端读回用户配置。
+ * 从服务端读回当前请求对应的配置。
+ *
+ * 服务端按访问者 IP 分文件（管理员用 config.json 站点基准，其余访客各用
+ * guests/<IP>.json），响应里的 scope 就是告诉页面「你正在改哪一份」。
  * 只在页面初始化时调用一次 —— 页面不再提供「加载配置」按钮，
- * 因为配置只有一份（config.json），改动会即时写回，不存在需要重新拉取的草稿。
+ * 因为改动会即时写回，不存在需要重新拉取的草稿。
  */
 function loadUserConfig() {
   fetch('/api/config').then(function(res) { return res.json(); }).then(function(data) {
     config = data;
+    renderScope(config.scope);
     if (!config.groups) config.groups = [];
     // nodeFilter 兼容
     if (!config.nodeFilter) {
@@ -52,6 +56,18 @@ function loadUserConfig() {
     renderGroups();
     setSaveState('err', '配置加载失败');
   });
+}
+
+/**
+ * 顶栏显示当前身份：改的是站点基准（管理员）还是自己那份访客配置。
+ * 部署到公网后这一步很重要 —— 否则管理员会意识不到自己改的不再是「全局」。
+ */
+function renderScope(scope) {
+  var el = document.getElementById('scopeLabel');
+  if (!el || !scope) return;
+  el.textContent = scope.admin
+    ? '👑 管理员 · 站点基准 · ' + scope.ip
+    : '👤 访客 · guests/' + scope.guest + '.json';
 }
 
 // ========== 订阅拉取 UA ==========
@@ -465,6 +481,8 @@ function toggleGroup(index, enabled) {
 
 function buildSavePayload() {
   var payload = JSON.parse(JSON.stringify(config));
+  // scope 是只读的身份信息，不能回传给服务端
+  delete payload.scope;
   if (config.nodeFilter === 'hideDomestic') {
     payload.nodeFilters = { hideDomestic: true, hideInternational: false };
   } else if (config.nodeFilter === 'hideInternational') {
@@ -479,9 +497,11 @@ function buildSavePayload() {
 
 // ========== 自动保存 ==========
 //
-// config.json 是唯一的用户配置。页面不再保留「改了但没保存」的草稿状态：
-// 任何改动（过滤方式 / 排除关键词 / 拉取 UA / 分组开关与选项）都会合并写回，
-// 因此页面上不需要「加载配置」「保存配置」两个按钮。
+// 页面不再保留「改了但没保存」的草稿状态：任何改动（过滤方式 / 排除关键词 /
+// 拉取 UA / 分组开关与选项）都会合并写回，因此不需要「加载配置」「保存配置」两个按钮。
+//
+// 写回的目标由服务端根据访问者 IP 决定：管理员写 config.json（站点基准），
+// 其余访客写 guests/<IP>.json，两者都只存差异。
 //
 // 防抖的用处：自定义 UA 是逐字符触发的，关键词也可能连点，
 // 300ms 合并后一次请求即可，同时保证快速连点最终只落盘最终状态。

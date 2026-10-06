@@ -16,6 +16,7 @@
 - **订阅信息透传** — 转发机场的流量 / 到期 / 官网 / 订阅名响应头，Clash Verge 等客户端可正常显示订阅详情
 - **节点过滤** — 支持隐藏国内/国际节点、22 个预设关键词排除
 - **本地路由** — 内置局域网 / 私有 IP / GEOIP 直连规则，无需额外配置
+- **访客隔离** — 部署到公网后按访问者 IP 拆分配置文件，互不影响（见[访客配置](#访客配置按访问者-ip-隔离)）
 
 ## 快速开始
 
@@ -60,6 +61,77 @@ npm run status   # 状态
 npm run dev
 ```
 
+## 访客配置（按访问者 IP 隔离）
+
+部署到公网后，**任何访问者改配置都会影响所有人**。本服务按访问者 IP 拆分配置，
+一个访客一个文件：
+
+| 文件 | 归谁 | 入库 |
+|------|------|------|
+| `config/default.json` | 内置基准（21 个分组定义） | ✅ |
+| `config.json` | **站点基准** —— 管理员的配置，也是所有访客的起点。可选，不存在时全部使用 `default.json`，首次在配置页保存时自动创建 | ❌ gitignore |
+| `guests/<访客ID>.json` | **访客配置** —— 只存与站点基准的差异 | ❌ gitignore |
+
+生效顺序：`default.json` ← `config.json` ← `guests/<ID>.json`，后者覆盖前者。
+
+- **管理员**：`ADMIN_IPS` 里列出的 IP。未启用反向代理时，回环地址（`127.0.0.1`）
+  也算管理员 —— 于是「本机打开配置页改的就是站点基准」，无需额外设置。
+- **其他访问者**：**首次保存配置时**（`POST /api/config`）自动创建 `guests/<IP>.json`，
+  初始内容是空的差异（`{}`），即完全继承站点基准。只打开配置页看看、不改任何东西，
+  不会留下文件 —— 读接口永远不会落盘，避免陌生人刷新一次页面就多一个文件。
+- **只存差异**：访客把某项改回与站点基准相同时，该字段会从访客文件里**删掉**，
+  于是重新跟随管理员后续的改动；改回默认值也一样会被清掉。
+- 删掉 `guests/<IP>.json` 即重置该访客，删掉整个 `guests/` 即重置所有访客，
+  **不用重启服务**。访客文件总数上限默认 1000（`MAX_GUESTS` 环境变量可调）。
+
+配置页顶栏会显示当前改的是哪一份（`👑 管理员 · 站点基准` 或 `👤 访客 · guests/1.2.3.4.json`）。
+
+### 部署在反向代理后面（必看）
+
+若前面有 Nginx / Caddy，**必须**设置 `TRUST_PROXY`，否则 `req.ip` 恒为 `127.0.0.1`，
+所有访客会被当成同一个人：
+
+```js
+// ecosystem.config.js -> env
+TRUST_PROXY: 'loopback',     // 只信任来自回环地址的代理头
+ADMIN_IPS: '203.0.113.9',    // 管理员 IP，多个用逗号分隔
+```
+
+| `TRUST_PROXY` | 含义 |
+|---------------|------|
+| 留空 / `0` / `false` | 关闭（默认）。只取 TCP 连接来源地址，`X-Forwarded-For` 被完全忽略 |
+| `1` / `true` | 信任最近一跳（两者都按数字 `1` 处理） |
+| `loopback` | 只信任回环地址发来的代理头（推荐） |
+| `10.0.0.0/8` | 信任指定网段 |
+| `2` | 信任前 2 跳 |
+
+> ⚠️ 开启后 `req.ip` 来自 `X-Forwarded-For`，是**攻击者可控输入**。因此访客 ID 被严格
+> 过滤（只保留 `[0-9a-zA-Z._-]`），不可能写到 `guests/` 之外；但客户端也能伪造 IP 冒充
+> 别人的配置，所以**前面没有代理时请保持关闭**。
+>
+> ⚠️ 想只信任一跳请写 `'1'` 或 `'loopback'`，**别写布尔 `true`**：`true` 在 Express 里是
+> 「信任**所有**跳」，`req.ip` 会取 `X-Forwarded-For` 的**最左**值 —— 那正是客户端自己填的
+> 那一项，任何人都能冒充 `ADMIN_IPS` 里的地址去改站点基准。本服务把 `'1'` 和 `'true'`
+> 都当数字 `1` 处理（取最右的不可信地址），但建议直接写 `'1'` / `'loopback'`。
+>
+> 设了 `TRUST_PROXY` 后回环地址不再算管理员，`ADMIN_IPS` 里必须填管理员的**真实**公网 IP。
+
+### 已知限制
+
+同一出口 IP 的人**共用一份配置**（家里多台设备、公司 NAT 出口都一样）—— 这是按 IP
+区分的固有代价。要严格区分得改用路径标识（用起来更麻烦）或登录态。
+
+### 运维
+
+```bash
+ls guests/                    # 有哪些访客
+cat guests/1.2.3.4.json       # 该访客改了哪些项（只列差异）
+rm guests/1.2.3.4.json        # 重置该访客（不用重启服务）
+```
+
+启动时终端会打印访客数量、管理员 IP 清单与 `guests/` 路径；
+完整记录在 `logs/app.log` 的 `[guests]` / `[config]` 行（带 `scope=`、`diffKeys=`）。
+
 ## 项目结构
 
 ```
@@ -67,7 +139,8 @@ clash-sub-converter/
 ├── index.js                   # 入口（HTTP 服务）
 ├── package.json
 ├── ecosystem.config.js        # PM2 配置
-├── config.json                # 用户配置（位于根目录，仅存差异，被 .gitignore 忽略）
+├── config.json                # 站点基准配置（管理员用，仅存差异，被 .gitignore 忽略）
+├── guests/                    # 访客配置（一个访客一个文件，被 .gitignore 忽略）
 ├── config/
 │   ├── default.json           # 基准配置（21 个分组定义，纳入版本控制）
 │   ├── regions.json           # 地区分组（22 个地区）
@@ -96,7 +169,8 @@ clash-sub-converter/
 │   ├── rule-manager.js        # 规则管理器
 │   ├── converter.js           # 转换引擎 → Clash YAML
 │   ├── api.js                 # API 路由
-│   ├── user-config.js         # 用户配置读写（default.json + config.json 合并）
+│   ├── user-config.js         # 配置读写（default.json + config.json + 访客配置 三层合并）
+│   ├── guests.js              # 访客识别（IP / ADMIN_IPS / TRUST_PROXY）与访客配置文件管理
 │   ├── user-agents.js         # 拉取订阅的 UA 预设与解析
 │   ├── logger.js              # 日志（写 logs/，分级 + 请求编号 + URL 脱敏）
 │   └── utils.js               # 工具函数
@@ -129,7 +203,7 @@ clash-sub-converter/
 | `POST` | `/api/convert-file` | 直接传入订阅内容转换 |
 | `POST` | `/api/parse` | 解析订阅，返回节点列表 |
 | `GET` | `/sub` | OpenClash 兼容端点 |
-| `GET/POST` | `/api/config` | 用户配置读写 |
+| `GET/POST` | `/api/config` | 配置读写（按访问者身份落在站点基准或访客文件） |
 | `GET` | `/api/user-agents` | 可选客户端 UA 预设列表 |
 | `GET/POST` | `/api/rules` | 分流规则管理 |
 | `GET/PUT/DELETE` | `/api/rules/:id` | 单条规则 CRUD |

@@ -5,6 +5,7 @@ const { convertToClash, convertToSurge } = require('./src/converter');
 const { requestSubscription, parseRuleOptions, applySubscriptionHeaders } = require('./src/utils');
 const { readConfig } = require('./src/user-config');
 const { resolveUserAgent } = require('./src/user-agents');
+const guests = require('./src/guests');
 const logger = require('./src/logger');
 const apiRouter = require('./src/api');
 
@@ -12,6 +13,11 @@ const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 25500;
+
+// 反向代理后面必须设置 TRUST_PROXY，否则 req.ip 恒为 127.0.0.1，
+// 所有访客会被判定成同一个人（详见 src/guests.js）
+const TRUST_PROXY = guests.parseTrustProxy(process.env.TRUST_PROXY);
+app.set('trust proxy', TRUST_PROXY);
 
 const bootLog = logger.create('app');
 
@@ -92,7 +98,8 @@ app.get('/sub', async (req, res) => {
       ua,
     } = req.query;
 
-    const client = req.ip || req.socket.remoteAddress || '-';
+    const scope = guests.scopeOf(req);
+    const client = scope.ip;
 
     if (!url) {
       log.warn('缺少 url 参数', { client, 'user-agent': req.get('user-agent') || '-' });
@@ -103,8 +110,9 @@ app.get('/sub', async (req, res) => {
     const urls = url.split('|').map(u => u.trim()).filter(Boolean);
 
     // 拉取订阅时使用的 UA：?ua= 显式指定 > 配置 > 透传调用方（浏览器则回退预设）
+    // 这里读的是「本访客那份配置」：UA / 过滤 / 分组都随访客各自生效
     const callerUA = req.get('user-agent') || '';
-    const { fetch: fetchCfg = {} } = readConfig();
+    const { fetch: fetchCfg = {} } = readConfig(scope.guest);
     // 连同「这个 UA 是怎么定出来的」一起带下去：机场因 UA 不一致作废订阅时靠它定位
     const uaResolved = ua
       ? { ua, source: '?ua= 显式指定' }
@@ -115,6 +123,7 @@ app.get('/sub', async (req, res) => {
       target,
       urls: urls.length,
       client,
+      scope: scope.guest || '站点基准',
       'caller-ua': callerUA || '(空)',
       mode: ua ? 'query' : (fetchCfg.userAgent || 'auto'),
       'send-ua': fetchOpts.userAgent,
@@ -222,7 +231,7 @@ app.get('/sub', async (req, res) => {
     let outType;
 
     if (target.startsWith('surge')) {
-      output = convertToSurge(proxies, { ruleOptions });
+      output = convertToSurge(proxies, { ruleOptions, guestId: scope.guest });
       outType = 'text/plain';
     } else {
       // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价。
@@ -230,7 +239,8 @@ app.get('/sub', async (req, res) => {
       // 于是「第一份是 URI 列表、第二份是 Clash YAML」时 dns 会静默丢失，
       // 与 /api/convert（sources.map(extractClashDns).find(Boolean)）行为不一致。
       const srcDns = metas.map(m => extractClashDns(m.text)).find(Boolean);
-      const convertOptions = { ruleOptions };
+      // guestId 决定用哪份过滤开关 / 分组策略
+      const convertOptions = { ruleOptions, guestId: scope.guest };
       if (srcDns) convertOptions.dns = srcDns;
       log.debug('源订阅 DNS 透传', { dns: srcDns ? '有' : '无' });
       output = convertToClash(proxies, convertOptions).yaml;
@@ -274,6 +284,21 @@ app.listen(PORT, () => {
   console.log(`      ${base}/sub?target=clash&url=<订阅链接>`);
   console.log(`\n   本机访问可用 http://127.0.0.1:${PORT}\n`);
 
+  // 访客隔离最容易出事的地方是「以为在隔离，其实全用同一份配置」，所以启动时
+  // 把判定依据（管理员 IP 列表 / 是否启用反代）直接打在控制台上
+  const adminList = guests.adminIps(TRUST_PROXY);
+  const guestCount = guests.listGuestIds().length;
+  console.log(`   ④ 访客配置 — 一个访客一个文件，互不影响`);
+  console.log(`      guests/ 已有 ${guestCount} 个访客`);
+  console.log(`      管理员 IP（改的是 config.json 站点基准）：${adminList.join(', ') || '(空，请在 ADMIN_IPS 里配置)'}`);
+  console.log(`      其他访问者各自使用 guests/<IP>.json（首次保存配置时创建）`);
+  if (!TRUST_PROXY) {
+    console.log(`      ⚠  未启用反向代理支持（TRUST_PROXY 未设置）`);
+    console.log(`         部署在 Nginx / Caddy 后面时请设置 TRUST_PROXY，否则 req.ip 恒为`);
+    console.log(`         127.0.0.1，所有访客会被当成同一个人。`);
+  }
+  console.log('');
+
   bootLog.info('服务已启动', {
     port: PORT,
     url: base,
@@ -283,6 +308,10 @@ app.listen(PORT, () => {
     'app.log': logger.APP_LOG,
     'file-level': logger.level.fileName,
     'console-level': logger.level.consoleName,
+    'trust-proxy': TRUST_PROXY,
+    'admin-ips': adminList,
+    'guest-dir': guests.GUEST_DIR,
+    guests: guestCount,
   });
   bootLog.info('排查提示：完整流程日志在 logs/app.log，仅问题在 logs/error.log');
 });

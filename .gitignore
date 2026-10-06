@@ -1,5 +1,5 @@
 logs/
 samples/
 node_modules/
+guests/
 
-config.json

@@ -6,6 +6,7 @@ const { parseSubscription, parseSubscriptionList, extractClashDns } = require('.
 const { isDomestic, CN_LABEL } = require('./proxy-groups');
 const { ruleManager } = require('./rule-manager');
 const { convertToClash } = require('./converter');
+const guests = require('./guests');
 const logger = require('./logger');
 
 const log = logger.create('api');
@@ -16,11 +17,16 @@ const router = express.Router();
 
 /**
  * 解析本次拉取应使用的 UA，并带上它的来源（仅用于日志）
+ *
+ * UA 是用户配置的一部分：不同访客可以各用各的 UA（同一机场对不同客户端
+ * 可能下发不同结果，部分机场还会按 UA 拦截）。因此这里必须读「本请求对应的
+ * 那份配置」，而不是统一的 config.json。
+ *
  * @param {Object} req      express 请求
  * @param {string} override 请求体里显式指定的 UA（优先级最高）
  */
 function uaOptions(req, override) {
-  const { fetch: fetchCfg = {} } = readConfig();
+  const { fetch: fetchCfg = {} } = readConfig(guests.guestIdFrom(req));
   const callerUA = req.get('user-agent') || '';
   if (override) return { userAgent: override, uaSource: '请求体显式指定' };
   const resolved = resolveUserAgent(fetchCfg, callerUA);
@@ -105,7 +111,7 @@ router.post('/convert-file', (req, res) => {
     }
 
     // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
-    const convertOptions = {};
+    const convertOptions = { guestId: guests.guestIdFrom(req) };
     const srcDns = extractClashDns(content);
     if (srcDns) convertOptions.dns = srcDns;
 
@@ -223,7 +229,8 @@ router.post('/convert', async (req, res) => {
 
     // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
     const srcDns = sources.map(extractClashDns).find(Boolean);
-    const convertOptions = { nodeFilters, excludeKeywords };
+    // guestId 必须带上：过滤开关与分组策略都来自「本请求对应的那份配置」
+    const convertOptions = { nodeFilters, excludeKeywords, guestId: guests.guestIdFrom(req) };
     if (srcDns) convertOptions.dns = srcDns;
 
     clog.debug('开始转换', { proxies: proxies.length, nodeFilters, dns: srcDns ? '有' : '无' });
@@ -260,30 +267,40 @@ router.get('/user-agents', (req, res) => {
 
 /**
  * GET /api/config
- * 返回当前用户配置（回退到 default.json）
+ * 返回当前请求对应的配置（管理员 = 站点基准，访客 = 站点基准 + 自己那份差异）；
+ * scope 用于让页面显示「你正在改的是哪一份配置」。
  */
 router.get('/config', (req, res) => {
-  res.json(readConfig());
+  const scope = guests.scopeOf(req);
+  const config = readConfig(scope.guest);
+  log.debug('GET /api/config', { ip: scope.ip, scope: scope.guest || '站点基准' });
+  res.json({ ...config, scope });
 });
 
 /**
  * POST /api/config
- * 保存用户配置 — 仅存储与 default.json 的差异
+ * 保存配置 —— 仅存储与下层基准的差异（管理员写 config.json，访客写 guests/<IP>.json）
  */
 router.post('/config', (req, res) => {
+  const scope = guests.scopeOf(req);
   try {
     const newConfig = req.body;
     if (!newConfig || !Array.isArray(newConfig.groups)) {
       log.warn('POST /api/config 配置格式无效', {
         hasBody: !!newConfig,
         keys: newConfig ? Object.keys(newConfig) : null,
+        scope: scope.guest || '站点基准',
       });
       return res.status(400).json({ error: '无效的配置格式' });
     }
 
-    const saved = saveConfig(newConfig);
-    log.info('POST /api/config 完成', { groups: newConfig.groups.length });
-    res.json({ success: true, config: saved });
+    const saved = saveConfig(newConfig, scope.guest);
+    log.info('POST /api/config 完成', {
+      groups: newConfig.groups.length,
+      ip: scope.ip,
+      scope: scope.guest || '站点基准',
+    });
+    res.json({ success: true, config: saved, scope });
   } catch (err) {
     log.fail('POST /api/config 保存失败', err);
     res.status(500).json({ error: '保存失败: ' + err.message });
