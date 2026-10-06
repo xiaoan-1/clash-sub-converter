@@ -6,7 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { ruleManager } = require('./rule-manager');
+const { ruleManager, ALWAYS_ON_RULE_ID } = require('./rule-manager');
 
 // 加载地区配置
 const regionsPath = path.join(__dirname, '..', 'config', 'regions.json');
@@ -137,7 +137,7 @@ function generateProxyGroups(proxies, options = {}) {
   //    Clash 以 proxies 列表的第一个为默认出口
   const fixedOptions = ['🚀 节点选择', '♻️ 自动选择', 'DIRECT'];
   for (const rc of ruleManager.getAll()) {
-    if (rc.id === 'common') continue;
+    if (rc.id === ALWAYS_ON_RULE_ID) continue;
 
     const ruleCfg = ruleMap.get(rc.id);
     if (ruleCfg && ruleCfg.enabled === false) continue;

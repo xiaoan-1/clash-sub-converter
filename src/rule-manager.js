@@ -9,6 +9,16 @@ const path = require('path');
 
 const RULES_DIR = path.join(__dirname, '..', 'config', 'rules');
 
+/**
+ * 始终启用的规则分组 id。
+ * 它的 target 是 DIRECT，不面向用户选择，因此：
+ *   - 不参与 flag / include-exclude 过滤（generateRules）
+ *   - 不生成 Clash 分组（proxy-groups）
+ *   - 不出现在可选分组列表里（utils.ruleGroupKeys）
+ * 这三处判定必须一致，所以共用一个常量而不是各自硬编码字符串。
+ */
+const ALWAYS_ON_RULE_ID = 'common';
+
 class RuleManager {
   constructor() {
     this.rules = new Map(); // id -> ruleConfig
@@ -56,7 +66,7 @@ class RuleManager {
    * 生成 Clash 分流规则
    * @param {Object} options - { telegram: true, openai: false, customRules: [...] }
    *   key 即规则 ID（对应 config/rules/*.json 文件名），value 为 true/undefined 表示启用
-   *   common 始终启用
+   *   ALWAYS_ON_RULE_ID('common') 始终启用
    * @returns {string[]} 规则数组，如 ['DOMAIN-SUFFIX,t.me,💬 Telegram', ...]
    */
   generateRules(options = {}) {
@@ -71,7 +81,7 @@ class RuleManager {
       const { id, target: ruleTarget, name, rules: patterns } = ruleConfig;
 
       // common 始终启用，其他按 flag 决定
-      if (id !== 'common' && hasFlags && !flags[id]) continue;
+      if (id !== ALWAYS_ON_RULE_ID && hasFlags && !flags[id]) continue;
 
       const target = ruleTarget || name;
       for (const rule of patterns) {
@@ -141,4 +151,4 @@ class RuleManager {
 // 单例
 const ruleManager = new RuleManager();
 
-module.exports = { RuleManager, ruleManager };
+module.exports = { RuleManager, ruleManager, ALWAYS_ON_RULE_ID };

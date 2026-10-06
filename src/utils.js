@@ -1,5 +1,5 @@
 const { pickUserAgent, FALLBACK_UA } = require('./user-agents');
-const { ruleManager } = require('./rule-manager');
+const { ruleManager, ALWAYS_ON_RULE_ID } = require('./rule-manager');
 
 /** 默认 UA（未做任何配置时使用） */
 const DEFAULT_FETCH_UA = FALLBACK_UA;
@@ -260,13 +260,13 @@ const RULE_GROUP_ALIASES = {
 
 /**
  * 取所有可被 include/exclude 控制的规则组 id。
- * common 不是可选分组（其 target 为 DIRECT）且始终启用，因此排除。
+ * ALWAYS_ON_RULE_ID 不是可选分组（其 target 为 DIRECT）且始终启用，因此排除。
  * 直接从规则目录推导，新增规则文件无需再同步别名表。
  */
 function ruleGroupKeys() {
   return ruleManager.getAll()
     .map(r => r.id)
-    .filter(id => id !== 'common');
+    .filter(id => id !== ALWAYS_ON_RULE_ID);
 }
 
 /**
