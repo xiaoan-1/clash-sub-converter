@@ -11,14 +11,19 @@ var uaPresets = [];          // 订阅拉取 UA 预设（来自 /api/user-agents
 var KW_PRESETS = ['流量', '官网', '套餐', '到期', '剩余', '应急', '免费', '测试', '失效', '过期', '活动', '优惠', '推荐', '广告', '回国', '禁止', 'ipv6', '中转', '隧道', '倍率', '专线', '-----'];
 
 window.addEventListener('DOMContentLoaded', function() {
-  // 先拿到 UA 预设，再渲染配置，避免选择器为空
-  loadUaPresets().then(function() { loadConfig(); });
+  // 先拿到 UA 预设，再渲染配置（UA 下拉框为空会导致渲染出错）
+  loadUaPresets().then(function() { loadUserConfig(); });
   initFileZone();
 });
 
 // ========== 配置加载 ==========
 
-function loadConfig() {
+/**
+ * 从服务端读回用户配置。
+ * 只在页面初始化时调用一次 —— 页面不再提供「加载配置」按钮，
+ * 因为配置只有一份（config.json），改动会即时写回，不存在需要重新拉取的草稿。
+ */
+function loadUserConfig() {
   fetch('/api/config').then(function(res) { return res.json(); }).then(function(data) {
     config = data;
     if (!config.groups) config.groups = [];
@@ -40,10 +45,12 @@ function loadConfig() {
     renderPresets();
     renderUa();
     renderGroups();
+    setSaveState('ok');
   }).catch(function() {
     config = { subscriptions: [], groups: [], nodeFilter: 'all', excludeKeywords: [], fetch: { userAgent: 'auto', customUserAgent: '' } };
     renderUa();
     renderGroups();
+    setSaveState('err', '配置加载失败');
   });
 }
 
@@ -105,10 +112,12 @@ function onUaChange() {
   var sel = document.getElementById('uaSelect');
   config.fetch.userAgent = sel.value;
   updateUaUi();
+  scheduleSave();
 }
 
 function onUaCustomInput() {
   config.fetch.customUserAgent = document.getElementById('uaCustomInput').value;
+  scheduleSave();
 }
 
 // ========== URL 管理 ==========
@@ -325,6 +334,7 @@ function toggleResultGroup(header) {
 function setFilter(val) {
   config.nodeFilter = val;
   updateSegUI('filterSeg', val);
+  scheduleSave();
 }
 
 function updateSegUI(containerId, activeVal) {
@@ -359,17 +369,20 @@ function addKeyword() {
   input.value = '';
   input.focus();
   renderKeywords();
+  scheduleSave();
 }
 
 function removeKeyword(index) {
   config.excludeKeywords.splice(index, 1);
   renderKeywords();
+  scheduleSave();
 }
 
 function addPreset(kw) {
   if (config.excludeKeywords.indexOf(kw) !== -1) return;
   config.excludeKeywords.push(kw);
   renderKeywords();
+  scheduleSave();
 }
 
 function renderPresets() {
@@ -403,11 +416,11 @@ function renderGroups() {
     html += '<div class="group-card' + (enabled ? '' : ' disabled') + '">'
       + '<span class="group-name">' + esc(g.name) + '</span>'
       + badge
-      + '<select class="group-select" onchange="var g=config.groups[' + i + '];g.type=this.value;renderGroups()" ' + (enabled ? '' : 'disabled') + '>'
+      + '<select class="group-select" onchange="var g=config.groups[' + i + '];g.type=this.value;renderGroups();scheduleSave()" ' + (enabled ? '' : 'disabled') + '>'
       + '<option value="select" ' + (g.type === 'select' ? 'selected' : '') + '>手动选择</option>'
       + '<option value="url-test" ' + (g.type === 'url-test' ? 'selected' : '') + '>自动测速</option>'
       + '</select>'
-      + '默认: <select class="group-select" onchange="config.groups[' + i + '].defaultProxy=this.value" ' + (enabled ? '' : 'disabled') + '>';
+      + '默认: <select class="group-select" onchange="config.groups[' + i + '].defaultProxy=this.value;scheduleSave()" ' + (enabled ? '' : 'disabled') + '>';
 
     for (var j = 0; j < proxyOptions.length; j++) {
       html += '<option value="' + esc(proxyOptions[j]) + '" ' + (g.defaultProxy === proxyOptions[j] ? 'selected' : '') + '>' + esc(proxyOptions[j]) + '</option>';
@@ -447,6 +460,7 @@ function renderGroups() {
 function toggleGroup(index, enabled) {
   config.groups[index].enabled = enabled;
   renderGroups();
+  scheduleSave();
 }
 
 function buildSavePayload() {
@@ -463,20 +477,72 @@ function buildSavePayload() {
   return payload;
 }
 
-function saveConfig() {
-  var st = document.getElementById('saveStatus');
-  fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildSavePayload()) })
+// ========== 自动保存 ==========
+//
+// config.json 是唯一的用户配置。页面不再保留「改了但没保存」的草稿状态：
+// 任何改动（过滤方式 / 排除关键词 / 拉取 UA / 分组开关与选项）都会合并写回，
+// 因此页面上不需要「加载配置」「保存配置」两个按钮。
+//
+// 防抖的用处：自定义 UA 是逐字符触发的，关键词也可能连点，
+// 300ms 合并后一次请求即可，同时保证快速连点最终只落盘最终状态。
+
+var SAVE_DEBOUNCE_MS = 300;
+var saveTimer = null;
+var saveInFlight = false;
+var saveDirty = false;
+
+/** 标记有改动并安排写回。所有修改配置的地方都必须调用它。 */
+function scheduleSave() {
+  saveDirty = true;
+  setSaveState('pending');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(autosave, SAVE_DEBOUNCE_MS);
+}
+
+/**
+ * 写回用户配置。
+ * 同一时刻只允许一个请求在飞：并发写同一个文件会互相覆盖，
+ * 所以飞行中若有新改动，等回来后再补一次（saveDirty）。
+ */
+function autosave() {
+  clearTimeout(saveTimer);
+  if (saveInFlight) return;
+
+  saveInFlight = true;
+  saveDirty = false;
+
+  fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(buildSavePayload())
+  })
     .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
     .then(function(r) {
+      saveInFlight = false;
       if (!r.ok) throw new Error(r.data.error);
-      st.className = 'status status-ok';
-      st.textContent = '配置已保存';
-      setTimeout(function() { st.className = 'status'; }, 3000);
+      if (saveDirty) autosave();   // 飞行期间又改了 → 再写一次
+      else setSaveState('ok');
     })
     .catch(function(err) {
-      st.className = 'status status-err';
-      st.textContent = '保存失败: ' + err.message;
+      saveInFlight = false;
+      setSaveState('err', err.message);
     });
+}
+
+/** 顶栏状态提示：pending=保存中 / ok=已保存 / err=保存失败 */
+function setSaveState(state, msg) {
+  var el = document.getElementById('saveStatus');
+  if (!el) return;
+  if (state === 'pending') {
+    el.className = 'autosave-state autosave-pending';
+    el.textContent = '保存中…';
+  } else if (state === 'err') {
+    el.className = 'autosave-state autosave-err';
+    el.textContent = '保存失败：' + (msg || '未知错误');
+  } else {
+    el.className = 'autosave-state autosave-ok';
+    el.textContent = '已自动保存';
+  }
 }
 
 // ========== 工具函数 ==========

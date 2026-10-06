@@ -117,4 +117,8 @@ h3 { font-size: 14px; margin-bottom: 6px; }
 /* ===== 保存栏 / 下载栏（置顶） ===== */
 .card-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 12px 18px; background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
 .bar-desc { font-size: 14px; color: #333; font-weight: 600; flex: 1; }
-.save-status { font-size: 13px; margin-bottom: 16px; padding: 0 4px; }
+/* 自动保存状态：替换了原来的「加载配置 / 保存配置」按钮 */
+.autosave-state { font-size: 13px; color: #999; white-space: nowrap; }
+.autosave-ok { color: #52c41a; }
+.autosave-pending { color: #1890ff; }
+.autosave-err { color: #ff4d4f; }

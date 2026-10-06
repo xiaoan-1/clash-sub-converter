@@ -46,13 +46,11 @@
 
     <!-- ====== Tab: 转换配置 ====== -->
     <div class="tab-panel active" id="tabConfig">
-      <!-- 保存配置（置顶） -->
+      <!-- 自动保存状态：配置改动即时写回 config.json，无需手动保存 -->
       <div class="card-save-bar">
-        <span class="bar-desc">调整过滤规则和分组策略后，保存配置以生效</span>
-        <button class="btn btn-secondary" onclick="loadConfig()">🔄 加载配置</button>
-        <button class="btn btn-success" onclick="saveConfig()">💾 保存配置</button>
+        <span class="bar-desc">配置改动即时生效，自动保存，无需手动操作</span>
+        <span id="saveStatus" class="autosave-state">正在加载配置…</span>
       </div>
-      <div id="saveStatus" class="save-status"></div>
 
       <!-- 节点过滤（合并过滤 + 排除关键词） -->
       <div class="card">
