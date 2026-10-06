@@ -153,7 +153,8 @@ function convertToSurge(proxies, options = {}) {
       case 'vless':
         line = `${proxy.name} = vless, ${proxy.server}, ${proxy.port}, username=${proxy.uuid}`;
         if (proxy.tls) line += ', tls=true';
-        if (proxy.sni) line += ', sni=' + proxy.sni;
+        // VLESS 内部用 servername（mihomo 字段名），Surge 用 sni
+        if (proxy.servername || proxy.sni) line += ', sni=' + (proxy.servername || proxy.sni);
         break;
       case 'ss':
         line = `${proxy.name} = custom, ${proxy.server}, ${proxy.port}, ${proxy.cipher}, ${proxy.password}, https://github.com/crossutility/Quantumult-X/raw/master/Server-Churn-US.snippet`;
