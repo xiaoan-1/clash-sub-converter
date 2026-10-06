@@ -44,6 +44,12 @@ npm run logs     # 查看日志
 npm run status   # 状态
 ```
 
+### 日志
+
+转换全流程的日志写在 `logs/app.log`（全量）与 `logs/error.log`（仅 WARN / ERROR），
+每一行都带毫秒时间戳与请求编号。排查方法、级别控制与环境变量见
+[docs/日志与排查.md](docs/日志与排查.md)。
+
 
 ### 开发模式
 
@@ -89,19 +95,24 @@ clash-sub-converter/
 │   ├── api.js                 # API 路由
 │   ├── user-config.js         # 用户配置读写（default.json + config.json 合并）
 │   ├── user-agents.js         # 拉取订阅的 UA 预设与解析
+│   ├── logger.js              # 日志（写 logs/，分级 + 请求编号 + URL 脱敏）
 │   └── utils.js               # 工具函数
 ├── public/
 │   ├── index.html             # 首页（使用说明）
 │   ├── config.html            # 配置页面
 │   ├── config.css             # 配置页样式
 │   └── config.js              # 配置页逻辑
+├── logs/                      # 运行日志（被 .gitignore 忽略）
+│   ├── app.log                # 全量流程日志
+│   └── error.log              # 仅 WARN / ERROR
 └── docs/
     ├── 接口文档.md            # API 接口文档
     ├── 主流程详解.md           # 端到端流程详解
     ├── 数据流架构.md           # 完整数据流图
     ├── 代理协议解析.md         # 各协议解析结果结构
     ├── 配置文件格式说明.md     # 输入输出格式规范
-    └── 配置组装详解.md         # converter.js 内部细节
+    ├── 配置组装详解.md         # converter.js 内部细节
+    └── 日志与排查.md           # 日志格式 / 级别 / 常见问题排查方法
 ```
 
 ## API 接口

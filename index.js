@@ -2,14 +2,18 @@ const express = require('express');
 const path = require('path');
 const { parseSubscriptionList, extractClashDns } = require('./src/parser');
 const { convertToClash, convertToSurge } = require('./src/converter');
-const { requestSubscription, parseRuleOptions, applySubscriptionHeaders } = require('./src/utils');const { readConfig } = require('./src/user-config');
+const { requestSubscription, parseRuleOptions, applySubscriptionHeaders } = require('./src/utils');
+const { readConfig } = require('./src/user-config');
 const { pickUserAgent } = require('./src/user-agents');
+const logger = require('./src/logger');
 const apiRouter = require('./src/api');
 
 const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 25500;
+
+const bootLog = logger.create('app');
 
 // 获取本机局域网 IP
 function getLocalIP() {
@@ -68,6 +72,17 @@ app.get('/', (req, res) => {
  *   - config 本服务自带分组 / 规则体系，不套用外部模板
  */
 app.get('/sub', async (req, res) => {
+  // 每次请求一个编号，同一请求的多行日志都能用 [sub#xxxxxx] 串起来
+  const log = logger.create(`sub#${logger.reqId()}`);
+  const timer = logger.timer();
+
+  res.on('finish', () => {
+    log.info('请求结束', {
+      status: res.statusCode,
+      dur: timer.text(),
+    });
+  });
+
   try {
     const {
       target = 'clash',
@@ -77,7 +92,10 @@ app.get('/sub', async (req, res) => {
       ua,
     } = req.query;
 
+    const client = req.ip || req.socket.remoteAddress || '-';
+
     if (!url) {
+      log.warn('缺少 url 参数', { client, 'user-agent': req.get('user-agent') || '-' });
       return res.status(400).json({ error: 'Missing url parameter' });
     }
 
@@ -88,33 +106,48 @@ app.get('/sub', async (req, res) => {
     const callerUA = req.get('user-agent') || '';
     const { fetch: fetchCfg = {} } = readConfig();
     const fetchOpts = { userAgent: ua || pickUserAgent(fetchCfg, callerUA) };
-    console.log(
-      `[sub] target=${target} urls=${urls.length}` +
-      ` caller-ua="${callerUA || '(空)'}"` +
-      ` mode=${ua ? 'query' : (fetchCfg.userAgent || 'auto')}` +
-      ` -> send-ua="${fetchOpts.userAgent}"` +
-      ` include=${include || '-'} exclude=${exclude || '-'}`
-    );
+
+    log.info('请求进入', {
+      target,
+      urls: urls.length,
+      client,
+      'caller-ua': callerUA || '(空)',
+      mode: ua ? 'query' : (fetchCfg.userAgent || 'auto'),
+      'send-ua': fetchOpts.userAgent,
+      include: include || '-',
+      exclude: exclude || '-',
+    });
+    log.debug('订阅地址清单', { urls: urls.map(u => logger.safeUrl(u)) });
 
     // 获取所有订阅内容，同时收集机场下发的元信息（流量 / 到期 / 官网 / 文件名）
     let allContent = '';
     const metas = [];
     const failures = [];
-    for (const u of urls) {
+    const fetchTimer = logger.timer();
+
+    for (let i = 0; i < urls.length; i++) {
+      const u = urls[i];
       try {
         const decodedUrl = u.startsWith('http') ? u : decodeURIComponent(u);
+        log.debug(`拉取订阅 ${i + 1}/${urls.length}`, { url: logger.safeUrl(decodedUrl) });
         const result = await requestSubscription(decodedUrl, fetchOpts);
         allContent += (allContent ? '\n' : '') + result.text;
         metas.push(result);
       } catch (err) {
         // 日志/响应里隐去订阅地址中的凭据，避免泄漏 token
-        const safe = u
-          .replace(/\/\/[^@/]*@/, '//')
-          .replace(/([?&](token|sub|code|key)=)[^&]+/gi, '$1***');
+        const safe = logger.safeUrl(u);
         failures.push({ url: safe, reason: err.message });
-        console.warn(`[sub] 获取失败: ${safe} - ${err.message}`);
+        log.warn(`拉取订阅 ${i + 1}/${urls.length} 失败`, { url: safe, reason: err.message });
       }
     }
+
+    log.info('订阅拉取阶段结束', {
+      total: urls.length,
+      ok: metas.length,
+      failed: failures.length,
+      bytes: logger.formatBytes(Buffer.byteLength(allContent, 'utf-8')),
+      dur: fetchTimer.text(),
+    });
 
     if (!allContent) {
       // 常见原因：机场安全规则拦截（403/451）、订阅地址已失效、拉取 UA 与客户端不一致
@@ -122,19 +155,24 @@ app.get('/sub', async (req, res) => {
       const hint = hasHttpError
         ? '订阅源返回了错误状态码：订阅地址可能已失效，或拉取所用 UA 被机场安全规则拦截。请先在「配置界面 → 订阅拉取设置」中选择与你客户端一致的 UA。'
         : '无法连接到订阅源，请检查网络或订阅地址。';
+      log.warn('全部订阅拉取失败，终止转换', {
+        failures: failures.map(f => `${f.url} → ${f.reason}`),
+        hint,
+      });
       return res.status(400).json({ error: 'Failed to fetch any subscription', hint, failures });
     }
 
     // 多订阅必须分别解析再合并：把多份 YAML 直接拼接会产生重复根键，
     // yaml.load 会直接失败（表现为「No valid proxies found」）。
     const { proxies, dropped } = parseSubscriptionList(metas.map(m => m.text));
-    if (dropped) console.log(`[sub] 合并多订阅时丢弃 ${dropped} 个同名节点`);
+    if (dropped) log.info('合并多订阅时丢弃同名节点', { dropped });
 
     if (proxies.length === 0) {
+      log.warn('解析后没有任何有效节点，终止转换', { sources: metas.length });
       return res.status(400).json({ error: 'No valid proxies found' });
     }
 
-    console.log(`[sub] 解析到 ${proxies.length} 个节点`);
+    log.info('解析结果', { proxies: proxies.length, types: logger.countBy(proxies, p => p.type) });
 
     // 把机场的流量 / 到期 / 官网信息转发给客户端，否则 Clash 面板上订阅详情为空白
     applySubscriptionHeaders(res, metas);
@@ -142,14 +180,22 @@ app.get('/sub', async (req, res) => {
       'profile-update-interval', 'Content-Disposition']
       .filter(h => res.getHeader(h))
       .map(h => `${h}=${res.getHeader(h)}`);
-    console.log(forwarded.length
-      ? `[sub] 已转发订阅信息: ${forwarded.join(' | ')}`
-      : '[sub] 订阅源未下发流量 / 到期信息（该机场不支持）');
+    if (forwarded.length) {
+      log.info('已转发订阅信息给客户端', { headers: forwarded });
+    } else {
+      log.warn('订阅源未下发流量 / 到期信息（该机场不支持），客户端订阅详情将为空白');
+    }
 
     const ruleOptions = parseRuleOptions(include, exclude);
+    log.debug('规则组开关', { ruleOptions });
+
+    const convertTimer = logger.timer();
+    let output;
+    let outType;
 
     if (target.startsWith('surge')) {
-      res.type('text/plain').send(convertToSurge(proxies, { ruleOptions }));
+      output = convertToSurge(proxies, { ruleOptions });
+      outType = 'text/plain';
     } else {
       // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价。
       // 必须扫全部订阅再取第一个命中的：早期只取 metas[0]，
@@ -158,18 +204,29 @@ app.get('/sub', async (req, res) => {
       const srcDns = metas.map(m => extractClashDns(m.text)).find(Boolean);
       const convertOptions = { ruleOptions };
       if (srcDns) convertOptions.dns = srcDns;
-      res.type('text/yaml').send(convertToClash(proxies, convertOptions).yaml);
+      log.debug('源订阅 DNS 透传', { dns: srcDns ? '有' : '无' });
+      output = convertToClash(proxies, convertOptions).yaml;
+      outType = 'text/yaml';
     }
+
+    log.info('转换完成，准备响应', {
+      target,
+      out: logger.formatBytes(Buffer.byteLength(output, 'utf-8')),
+      convertDur: convertTimer.text(),
+      totalDur: timer.text(),
+    });
+
+    res.type(outType).send(output);
   } catch (err) {
     // 全部节点被过滤属用户配置问题：返回 400 + 可操作提示，而非 500 服务端错误
     if (err.code === 'ALL_PROXIES_FILTERED') {
-      console.warn('[sub]', err.message);
+      log.warn('全部节点被过滤条件排除，返回 400', { err: err.message, hint: err.hint });
       // 上边的 applySubscriptionHeaders 可能已设置下载头，
       // 这里必须撤掉，否则浏览器会把错误 JSON 当成文件下载。
       res.removeHeader('Content-Disposition');
       return res.status(400).json({ error: err.message, hint: err.hint });
     }
-    console.error('[sub] 错误:', err.message);
+    log.fail('转换过程中发生未预期的错误', err);
     res.status(500).json({ error: 'Convert failed: ' + err.message });
   }
 });
@@ -188,6 +245,18 @@ app.listen(PORT, () => {
   console.log(`   ③ 订阅转换地址 — 填入 OpenClash，必须带 url 参数`);
   console.log(`      ${base}/sub?target=clash&url=<订阅链接>`);
   console.log(`\n   本机访问可用 http://127.0.0.1:${PORT}\n`);
+
+  bootLog.info('服务已启动', {
+    port: PORT,
+    url: base,
+    pid: process.pid,
+    node: process.version,
+    env: process.env.NODE_ENV || 'development',
+    'app.log': logger.APP_LOG,
+    'file-level': logger.level.fileName,
+    'console-level': logger.level.consoleName,
+  });
+  bootLog.info('排查提示：完整流程日志在 logs/app.log，仅问题在 logs/error.log');
 });
 
 module.exports = app;

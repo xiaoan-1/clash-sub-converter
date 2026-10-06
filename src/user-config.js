@@ -17,6 +17,9 @@ const fs = require('fs');
 const path = require('path');
 const { ruleManager } = require('./rule-manager');
 const { ruleGroupKeys } = require('./utils');
+const logger = require('./logger');
+
+const log = logger.create('config');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
 const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'config', 'default.json');
@@ -34,7 +37,8 @@ const DEFAULT_RULE_PROXY = '♻️ 自动选择';
 function loadDefaultConfig() {
   try {
     return JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
-  } catch {
+  } catch (err) {
+    log.fail('基准配置 config/default.json 读取失败，已回退为空配置', err, { path: DEFAULT_CONFIG_PATH });
     return { groups: [], nodeFilters: {}, excludeKeywords: [], fetch: {} };
   }
 }
@@ -47,7 +51,10 @@ function loadUserConfig() {
     if (fs.existsSync(CONFIG_PATH)) {
       return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
     }
-  } catch { /* ignore */ }
+    log.debug('用户配置 config.json 不存在，使用全部默认值', { path: CONFIG_PATH });
+  } catch (err) {
+    log.fail('用户配置 config.json 解析失败，已回退为默认值', err, { path: CONFIG_PATH });
+  }
   return {};
 }
 
@@ -121,12 +128,24 @@ function readConfig() {
     };
   });
 
-  return {
+  const fetchCfg = { ...(def.fetch || {}), ...(user.fetch || {}) };
+  const result = {
     nodeFilters: user.nodeFilters || def.nodeFilters || {},
     excludeKeywords: user.excludeKeywords || def.excludeKeywords || [],
-    fetch: { ...(def.fetch || {}), ...(user.fetch || {}) },
+    fetch: fetchCfg,
     groups,
   };
+
+  // readConfig 每次请求都会被调用多次，只在 debug 级记录，便于核对「界面改了但没生效」
+  log.debug('配置已加载', {
+    groups: groups.length,
+    disabled: groups.filter(g => g.enabled === false).map(g => g.ruleId || g.builtin),
+    nodeFilters: result.nodeFilters,
+    excludeKeywords: result.excludeKeywords.length,
+    fetch: JSON.stringify(fetchCfg),
+  });
+
+  return result;
 }
 
 /**
@@ -174,6 +193,15 @@ function saveConfig(newConfig) {
   if (Object.keys(fetchOv).length > 0) out.fetch = fetchOv;
 
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(out, null, 2), 'utf-8');
+
+  log.info('用户配置已保存', {
+    path: CONFIG_PATH,
+    nodeFilters: out.nodeFilters,
+    excludeKeywords: out.excludeKeywords.length,
+    fetch: out.fetch ? JSON.stringify(out.fetch) : '(默认)',
+    groupOverrides: Object.keys(out.groupOverrides).length,
+  });
+
   return out;
 }
 

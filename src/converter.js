@@ -2,6 +2,9 @@ const yaml = require('js-yaml');
 const { generateProxyGroups, isDomestic, normalizeExcludeKeywords, filterByExcludeKeywords } = require('./proxy-groups');
 const { ruleManager } = require('./rule-manager');
 const { readConfig } = require('./user-config');
+const logger = require('./logger');
+
+const log = logger.create('converter');
 
 /**
  * 全部节点都被过滤规则排除时抛出。
@@ -56,19 +59,45 @@ function applyNodeFilters(proxies, nodeFilters = {}, excludeKeywords = []) {
     activeProxies = activeProxies.filter(p => isDomestic(p.name));
   }
 
+  // 逐阶段记录数量变化：节点「莫名少了」时，靠这一行就能定位是哪一步吃掉了
+  const kwHit = normalizeExcludeKeywords(excludeKeywords).filter(kw =>
+    proxies.some(p => String(p.name || '').toUpperCase().includes(kw)));
+  log.debug('节点过滤', {
+    in: proxies.length,
+    afterKeywords: afterKeywords.length,
+    hideDomestic,
+    hideInternational,
+    out: activeProxies.length,
+    keywords: excludeKeywords.length,
+    hitKeywords: kwHit.length ? kwHit : undefined,
+  });
+
+  if (afterKeywords.length !== proxies.length) {
+    const kept = new Set(afterKeywords);
+    const removed = proxies.filter(p => !kept.has(p));
+    log.info('关键词过滤移除了节点', {
+      removed: removed.length,
+      sample: removed.slice(0, 15).map(p => p.name),
+      hitKeywords: kwHit.length ? kwHit : undefined,
+    });
+  }
+
   if (proxies.length > 0 && activeProxies.length === 0) {
     const reasons = [];
     // 只列出「真的减少了节点」的条件：默认配置带了一批关键词与开关，
     // 把没起作用的也写进提示会把用户的排查方向带偏。
     if (afterKeywords.length < proxies.length) {
-      const hitKeywords = normalizeExcludeKeywords(excludeKeywords).filter(kw =>
-        proxies.some(p => String(p.name || '').toUpperCase().includes(kw)));
+      const hitKeywords = kwHit;
       if (hitKeywords.length) reasons.push(`排除关键词「${hitKeywords.join('、')}」`);
     }
     if (afterKeywords.length > 0) {
       if (hideDomestic && !hideInternational) reasons.push('隐藏国内节点');
       if (hideInternational && !hideDomestic) reasons.push('隐藏国际节点');
     }
+    log.warn('全部节点被过滤条件排除', {
+      nodes: proxies.length,
+      reasons: reasons.length ? reasons : ['（未能定位具体条件）'],
+    });
     throw new AllProxiesFilteredError(
       proxies.length,
       reasons.length ? `当前过滤条件（${reasons.join(' + ')}）排除了全部节点` : null
@@ -106,6 +135,17 @@ function convertToClash(proxies, options = {}) {
 
   // 读取用户配置（options 优先级高于文件配置）
   const { userGroups, nodeFilters, excludeKeywords } = resolveUserConfig(options);
+  log.debug('转换入参', {
+    in: proxies.length,
+    name,
+    mixedPort,
+    mode,
+    nodeFilters,
+    excludeKeywords: excludeKeywords.length,
+    userGroups: userGroups.length,
+    dns: dns ? '透传源订阅 dns' : '无',
+  });
+
   const activeProxies = applyNodeFilters(proxies, nodeFilters, excludeKeywords);
 
   // 生成代理分组。
@@ -184,6 +224,15 @@ function convertToClash(proxies, options = {}) {
     nodes: activeProxies.map(p => ({ name: p.name, domestic: isDomestic(p.name) })),
     groups: groupList
   };
+
+  log.info('Clash 配置生成完成', {
+    totalNodes: summary.totalNodes,
+    filteredNodes: summary.filteredNodes,
+    groups: proxyGroups.length,
+    rules: rules.length,
+    yamlBytes: logger.formatBytes(Buffer.byteLength(yamlStr, 'utf-8')),
+    domestic: summary.nodes.filter(n => n.domestic).length,
+  });
 
   return { yaml: yamlStr, summary };
 }

@@ -7,6 +7,9 @@
 const fs = require('fs');
 const path = require('path');
 const { ruleManager, ALWAYS_ON_RULE_ID } = require('./rule-manager');
+const logger = require('./logger');
+
+const log = logger.create('groups');
 
 // 加载地区配置
 const regionsPath = path.join(__dirname, '..', 'config', 'regions.json');
@@ -66,6 +69,14 @@ function generateProxyGroups(proxies, options = {}) {
   // 0. 关键词排除（在所有分类前执行）
   const filteredProxies = filterByExcludeKeywords(proxies, excludeKeywords);
 
+  if (filteredProxies.length !== proxies.length) {
+    log.info('关键词排除生效', {
+      in: proxies.length,
+      out: filteredProxies.length,
+      keywords: excludeKeywords.length,
+    });
+  }
+
   const proxyNames = filteredProxies.map(p => p.name);
 
   // 分类节点
@@ -78,11 +89,22 @@ function generateProxyGroups(proxies, options = {}) {
   let activeProxies = proxyNames;
   if (hideDomestic && hideInternational) {
     // 两个互斥开关同时开，忽略过滤
+    log.warn('hideDomestic 与 hideInternational 同时开启，已忽略这两项过滤');
   } else if (hideDomestic) {
     activeProxies = activeProxies.filter(n => !domesticProxies.has(n));
   } else if (hideInternational) {
     activeProxies = activeProxies.filter(n => domesticProxies.has(n));
   }
+
+  // 注意：到这里节点已经过 applyNodeFilters 过滤，所以下面的开关通常都是默认的 false。
+  // 这里只做「分类」，记录国内 / 国际节点各多少，便于对照分组为何出现或消失。
+  log.debug('节点分类', {
+    total: proxyNames.length,
+    domestic: domesticProxies.size,
+    active: activeProxies.length,
+    hideDomestic,
+    hideInternational,
+  });
 
   // 用户配置查找表
   const builtinMap = new Map();  // builtin -> config
@@ -140,7 +162,10 @@ function generateProxyGroups(proxies, options = {}) {
     if (rc.id === ALWAYS_ON_RULE_ID) continue;
 
     const ruleCfg = ruleMap.get(rc.id);
-    if (ruleCfg && ruleCfg.enabled === false) continue;
+    if (ruleCfg && ruleCfg.enabled === false) {
+      log.debug('规则分组被用户关闭，跳过', { id: rc.id, name: rc.name });
+      continue;
+    }
 
     const defProxy = ruleCfg?.defaultProxy || '♻️ 自动选择';
     const otherOptions = fixedOptions.filter(o => o !== defProxy);
@@ -158,6 +183,11 @@ function generateProxyGroups(proxies, options = {}) {
     name: '🐟 漏网之鱼',
     type: 'select',
     proxies: ['🚀 节点选择', 'DIRECT', ...activeProxies]
+  });
+
+  log.info('分组生成完成', {
+    groups: groups.length,
+    list: groups.map(g => `${g.name}(${g.type},${g.proxies.length})`),
   });
 
   return sanitizeGroupRefs(groups, activeProxies);
@@ -188,9 +218,12 @@ function sanitizeGroupRefs(groups, proxyNames = []) {
 
     const kept = group.proxies.filter(p => valid.has(p));
     if (kept.length !== group.proxies.length) {
-      console.warn(
-        `[proxy-groups] 分组「${group.name}」移除 ${group.proxies.length - kept.length} 个不存在的引用`
-      );
+      const removed = group.proxies.filter(p => !valid.has(p));
+      log.warn('分组中包含不存在的引用，已移除', {
+        group: group.name,
+        removed: removed.length,
+        sample: removed.slice(0, 5),
+      });
     }
     // 空分组同样会被内核拒绝，兜底为直连
     group.proxies = kept.length ? kept : ['DIRECT'];

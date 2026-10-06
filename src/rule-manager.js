@@ -6,6 +6,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const logger = require('./logger');
+
+const log = logger.create('rules');
 
 const RULES_DIR = path.join(__dirname, '..', 'config', 'rules');
 
@@ -32,20 +35,34 @@ class RuleManager {
     this.rules.clear();
     if (!fs.existsSync(RULES_DIR)) {
       fs.mkdirSync(RULES_DIR, { recursive: true });
+      log.warn('规则目录不存在，已自动创建（此时无任何分流规则）', { dir: RULES_DIR });
       return;
     }
 
     const files = fs.readdirSync(RULES_DIR).filter(f => f.endsWith('.json'));
+    const failed = [];
     for (const file of files) {
       try {
         const data = JSON.parse(fs.readFileSync(path.join(RULES_DIR, file), 'utf-8'));
         if (data.id && data.name && Array.isArray(data.rules)) {
           this.rules.set(data.id, data);
+        } else {
+          failed.push(`${file}（缺少 id / name / rules 字段）`);
         }
       } catch (err) {
-        console.warn(`[RuleManager] 加载 ${file} 失败: ${err.message}`);
+        failed.push(`${file}（${err.message}）`);
       }
     }
+
+    if (failed.length) {
+      log.warn('部分规则文件未能加载', { failed });
+    }
+    log.info('分流规则加载完成', {
+      dir: RULES_DIR,
+      files: files.length,
+      loaded: this.rules.size,
+      ids: [...this.rules.keys()],
+    });
   }
 
   /**
@@ -76,12 +93,18 @@ class RuleManager {
     const hasFlags = Object.keys(flags).length > 0;
 
     const rules = [];
+    const enabledIds = [];
+    const disabledIds = [];
 
     for (const ruleConfig of this.rules.values()) {
       const { id, target: ruleTarget, name, rules: patterns } = ruleConfig;
 
       // common 始终启用，其他按 flag 决定
-      if (id !== ALWAYS_ON_RULE_ID && hasFlags && !flags[id]) continue;
+      if (id !== ALWAYS_ON_RULE_ID && hasFlags && !flags[id]) {
+        disabledIds.push(id);
+        continue;
+      }
+      enabledIds.push(id);
 
       const target = ruleTarget || name;
       for (const rule of patterns) {
@@ -92,6 +115,14 @@ class RuleManager {
     // GEOIP 国内直连 + 自定义规则 + 兜底
     rules.push(`GEOIP,CN,DIRECT`);
     rules.push(...customRules, 'MATCH,🐟 漏网之鱼');
+
+    log.debug('规则生成', {
+      hasFlags,
+      groups: enabledIds.length,
+      disabled: disabledIds.length ? disabledIds : undefined,
+      custom: customRules.length,
+      rules: rules.length,
+    });
 
     return rules;
   }

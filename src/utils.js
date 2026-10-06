@@ -1,5 +1,8 @@
 const { pickUserAgent, FALLBACK_UA } = require('./user-agents');
 const { ruleManager, ALWAYS_ON_RULE_ID } = require('./rule-manager');
+const logger = require('./logger');
+
+const log = logger.create('fetch');
 
 /** 默认 UA（未做任何配置时使用） */
 const DEFAULT_FETCH_UA = FALLBACK_UA;
@@ -178,20 +181,67 @@ async function requestSubscription(url, options = {}) {
     || pickUserAgent(options.fetchCfg || {}, options.callerUA || '')
     || DEFAULT_FETCH_UA;
 
-  const response = await fetch(url, {
-    headers: { 'User-Agent': ua, 'Accept': '*/*' },
-    signal: AbortSignal.timeout(15000)
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const safe = logger.safeUrl(url);
+  const t = logger.timer();
+  log.debug('开始拉取订阅', { url: safe, ua });
+
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { 'User-Agent': ua, 'Accept': '*/*' },
+      signal: AbortSignal.timeout(15000)
+    });
+  } catch (err) {
+    // 超时 / DNS / TLS / 连接被拒都在这里。区分超时与其他，排查方向完全不同
+    const timeout = err.name === 'TimeoutError' || err.name === 'AbortError';
+    log.warn('拉取订阅失败', {
+      url: safe,
+      ua,
+      dur: t.text(),
+      reason: timeout ? '超时（15 秒）' : err.message,
+    });
+    throw err;
+  }
+
+  if (!response.ok) {
+    log.warn('拉取订阅失败', {
+      url: safe,
+      ua,
+      dur: t.text(),
+      status: response.status,
+      'content-type': response.headers.get('content-type') || '-',
+      reason: `HTTP ${response.status}`,
+    });
+    throw new Error(`HTTP ${response.status}`);
+  }
 
   const headers = response.headers;
-  return {
-    text: await response.text(),
-    userInfo: parseUserInfo(readSubHeader(headers, 'subscription-userinfo')),
-    homeUrl: sanitizeHomeUrl(readSubHeader(headers, 'profile-web-page-url')),
-    updateInterval: parseUpdateInterval(readSubHeader(headers, 'profile-update-interval')),
-    fileName: parseFileName(readSubHeader(headers, 'content-disposition'))
-  };
+  const text = await response.text();
+
+  const userInfo = parseUserInfo(readSubHeader(headers, 'subscription-userinfo'));
+  const homeUrl = sanitizeHomeUrl(readSubHeader(headers, 'profile-web-page-url'));
+  const updateInterval = parseUpdateInterval(readSubHeader(headers, 'profile-update-interval'));
+  const fileName = parseFileName(readSubHeader(headers, 'content-disposition'));
+
+  log.info('拉取订阅成功', {
+    url: safe,
+    ua,
+    dur: t.text(),
+    status: response.status,
+    'content-type': headers.get('content-type') || '-',
+    bytes: logger.formatBytes(Buffer.byteLength(text, 'utf-8')),
+  });
+
+  // 机场元信息逐项记录：客户端「订阅详情」空白时，靠这几行判断是机场没下发还是本地没转发
+  log.debug('订阅元信息', {
+    url: safe,
+    userinfo: userInfo ? formatUserInfo(userInfo) : '(无)',
+    homeUrl: homeUrl || '(无)',
+    interval: updateInterval || '(无)',
+    fileName: fileName || '(无)',
+  });
+
+  return { text, userInfo, homeUrl, updateInterval, fileName };
 }
 
 /** 只需订阅正文时的便捷包装 */
@@ -211,7 +261,10 @@ async function fetchSubscription(url, options = {}) {
  */
 function applySubscriptionHeaders(res, metas) {
   const list = (metas || []).filter(Boolean);
-  if (!list.length) return;
+  if (!list.length) {
+    log.debug('无需转发订阅信息：没有成功拉取到的订阅元信息');
+    return;
+  }
 
   const userInfo = mergeUserInfo(list.map(m => m.userInfo));
   if (userInfo) res.setHeader('subscription-userinfo', formatUserInfo(userInfo));
@@ -230,6 +283,14 @@ function applySubscriptionHeaders(res, metas) {
       // 文件名含响应头不支持的字符时跳过，不影响正文
     }
   }
+
+  log.debug('订阅信息转发结果', {
+    sources: list.length,
+    userinfo: userInfo ? formatUserInfo(userInfo) : '(机场未下发)',
+    homeUrl: homeUrl || '(无)',
+    interval: interval || '(无)',
+    fileName: fileName || '(无)',
+  });
 }
 
 /**
