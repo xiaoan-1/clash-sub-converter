@@ -4,15 +4,16 @@
  * 结构约定
  * --------
  *   config/default.json —— 基准，含全部内置分组定义（纳入版本控制）
- *   config/config.json  —— 仅存与基准的差异（被 .gitignore 忽略）
+ *   config.json         —— 用户配置，位于项目根目录，仅存与基准的差异
+ *                          （被 .gitignore 忽略）
  *
- * readConfig() 返回「基准 + 用户覆盖」合并后的完整配置，供 index.js 与 api.js 共用。
+ * readConfig() 返回「基准 + 用户覆盖」合并后的完整配置，供 index.js / api.js / converter.js 共用。
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.json');
+const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
 const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'config', 'default.json');
 
 /**

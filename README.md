@@ -58,9 +58,9 @@ clash-sub-converter/
 ├── index.js                   # 入口（HTTP 服务）
 ├── package.json
 ├── ecosystem.config.js        # PM2 配置
+├── config.json                # 用户配置（位于根目录，仅存差异，被 .gitignore 忽略）
 ├── config/
 │   ├── default.json           # 基准配置（21 个分组定义，纳入版本控制）
-│   ├── config.json            # 用户配置（仅存差异，被 .gitignore 忽略）
 │   ├── regions.json           # 地区分组（22 个地区）
 │   └── rules/                 # 分流规则（18 个 JSON 文件）
 │       ├── common.json        # 系统规则（本地路由，始终生效）
