@@ -148,8 +148,11 @@ app.get('/sub', async (req, res) => {
     if (target.startsWith('surge')) {
       res.type('text/plain').send(convertToSurge(proxies, { ruleOptions }));
     } else {
-      // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
-      const srcDns = extractClashDns(metas[0].text);
+      // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价。
+      // 必须扫全部订阅再取第一个命中的：早期只取 metas[0]，
+      // 于是「第一份是 URI 列表、第二份是 Clash YAML」时 dns 会静默丢失，
+      // 与 /api/convert（sources.map(extractClashDns).find(Boolean)）行为不一致。
+      const srcDns = metas.map(m => extractClashDns(m.text)).find(Boolean);
       const convertOptions = { ruleOptions };
       if (srcDns) convertOptions.dns = srcDns;
       res.type('text/yaml').send(convertToClash(proxies, convertOptions).yaml);
