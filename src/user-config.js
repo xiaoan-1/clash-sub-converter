@@ -8,6 +8,9 @@
  *                          （被 .gitignore 忽略）
  *
  * readConfig() 返回「基准 + 用户覆盖」合并后的完整配置，供 index.js / api.js / converter.js 共用。
+ *
+ * 注意：订阅链接不在其中。它是每次请求的输入（`/sub?url=` 或页面上临时填写的地址），
+ * 用完即弃，不属于需要持久化的用户配置。
  */
 
 const fs = require('fs');
@@ -32,7 +35,7 @@ function loadDefaultConfig() {
   try {
     return JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
   } catch {
-    return { subscriptions: [], groups: [], nodeFilters: {}, excludeKeywords: [], fetch: {} };
+    return { groups: [], nodeFilters: {}, excludeKeywords: [], fetch: {} };
   }
 }
 
@@ -119,7 +122,6 @@ function readConfig() {
   });
 
   return {
-    subscriptions: user.subscriptions || [],
     nodeFilters: user.nodeFilters || def.nodeFilters || {},
     excludeKeywords: user.excludeKeywords || def.excludeKeywords || [],
     fetch: { ...(def.fetch || {}), ...(user.fetch || {}) },
@@ -165,7 +167,6 @@ function saveConfig(newConfig) {
   }
 
   const out = {
-    subscriptions: newConfig.subscriptions || [],
     nodeFilters: newConfig.nodeFilters || def.nodeFilters || {},
     excludeKeywords: newConfig.excludeKeywords || [],
     groupOverrides,

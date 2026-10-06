@@ -47,7 +47,7 @@ function loadUserConfig() {
     renderGroups();
     setSaveState('ok');
   }).catch(function() {
-    config = { subscriptions: [], groups: [], nodeFilter: 'all', excludeKeywords: [], fetch: { userAgent: 'auto', customUserAgent: '' } };
+    config = { groups: [], nodeFilter: 'all', excludeKeywords: [], fetch: { userAgent: 'auto', customUserAgent: '' } };
     renderUa();
     renderGroups();
     setSaveState('err', '配置加载失败');
