@@ -155,6 +155,14 @@ app.get('/sub', async (req, res) => {
       res.type('text/yaml').send(convertToClash(proxies, convertOptions).yaml);
     }
   } catch (err) {
+    // 全部节点被过滤属用户配置问题：返回 400 + 可操作提示，而非 500 服务端错误
+    if (err.code === 'ALL_PROXIES_FILTERED') {
+      console.warn('[sub]', err.message);
+      // 上边的 applySubscriptionHeaders 可能已设置下载头，
+      // 这里必须撤掉，否则浏览器会把错误 JSON 当成文件下载。
+      res.removeHeader('Content-Disposition');
+      return res.status(400).json({ error: err.message, hint: err.hint });
+    }
     console.error('[sub] 错误:', err.message);
     res.status(500).json({ error: 'Convert failed: ' + err.message });
   }

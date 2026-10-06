@@ -20,8 +20,35 @@ const CN_KEYWORDS_UPPER = new Set(regionsConfig.domestic.keywords.map(k => k.toU
  * 根据节点名称判断是否为国内节点
  */
 function isDomestic(name) {
-  const upperName = name.toUpperCase();
+  const upperName = String(name || '').toUpperCase();
   return CN_KEYWORDS_UPPER.has(upperName) || [...CN_KEYWORDS_UPPER].some(kw => upperName.includes(kw));
+}
+
+/**
+ * 归一化排除关键词：去空白 → 转大写 → 丢弃空串。
+ * 空串是任意字符串的子串，若不剔除，一条误配置的关键词就会把全部节点排除干净。
+ * @param {Array} keywords
+ * @returns {string[]}
+ */
+function normalizeExcludeKeywords(keywords) {
+  return (Array.isArray(keywords) ? keywords : [])
+    .map(k => String(k).trim().toUpperCase())
+    .filter(Boolean);
+}
+
+/**
+ * 按关键词排除节点。
+ * 幂等：传入原始关键词列表或已归一化的列表均可，空列表 = 不过滤。
+ * @param {Array} proxies
+ * @param {Array} keywords
+ */
+function filterByExcludeKeywords(proxies, keywords) {
+  const upperKeywords = normalizeExcludeKeywords(keywords);
+  if (!upperKeywords.length) return proxies;
+  return proxies.filter(p => {
+    const upper = String(p.name || '').toUpperCase();
+    return !upperKeywords.some(kw => upper.includes(kw));
+  });
 }
 
 /**
@@ -37,14 +64,7 @@ function generateProxyGroups(proxies, options = {}) {
   const { hideDomestic = false, hideInternational = false } = nodeFilters;
 
   // 0. 关键词排除（在所有分类前执行）
-  let filteredProxies = proxies;
-  if (excludeKeywords.length > 0) {
-    const upperKeywords = excludeKeywords.map(k => k.toUpperCase());
-    filteredProxies = proxies.filter(p => {
-      const upper = p.name.toUpperCase();
-      return !upperKeywords.some(kw => upper.includes(kw));
-    });
-  }
+  const filteredProxies = filterByExcludeKeywords(proxies, excludeKeywords);
 
   const proxyNames = filteredProxies.map(p => p.name);
 
@@ -181,6 +201,8 @@ function sanitizeGroupRefs(groups, proxyNames = []) {
 module.exports = {
   generateProxyGroups,
   isDomestic,
+  normalizeExcludeKeywords,
+  filterByExcludeKeywords,
   sanitizeGroupRefs,
   CN_LABEL
 };

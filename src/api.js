@@ -22,6 +22,24 @@ function uaOptions(req, override) {
   return { userAgent: override || pickUserAgent(fetchCfg, callerUA) };
 }
 
+/**
+ * 统一的转换错误响应。
+ * 全部节点被过滤掉属用户输入问题 → 400（客户端应据此提示用户改配置），
+ * 其余才是服务端故障 → 500。
+ */
+function sendConvertError(res, err, tag) {
+  if (err.code === 'ALL_PROXIES_FILTERED') {
+    console.warn(`${tag} ${err.message}`);
+    return res.status(400).json({
+      error: err.message,
+      hint: err.hint,
+      totalNodes: err.totalNodes
+    });
+  }
+  console.error(tag, err.message);
+  res.status(500).json({ error: '转换失败: ' + err.message });
+}
+
 // ===================== 订阅解析 =====================
 
 /**
@@ -77,8 +95,7 @@ router.post('/convert-file', (req, res) => {
     const result = convertToClash(proxies, convertOptions);
     res.json({ yaml: result.yaml, count: proxies.length });
   } catch (err) {
-    console.error('[api/convert-file]', err.message);
-    res.status(500).json({ error: '转换失败: ' + err.message });
+    sendConvertError(res, err, '[api/convert-file]');
   }
 });
 
@@ -140,8 +157,7 @@ router.post('/convert', async (req, res) => {
       summary: result.summary
     });
   } catch (err) {
-    console.error('[api/convert]', err.message);
-    res.status(500).json({ error: '转换失败: ' + err.message });
+    sendConvertError(res, err, '[api/convert]');
   }
 });
 
