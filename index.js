@@ -22,15 +22,16 @@ const HOST = process.env.HOST || '0.0.0.0';
  *
  * 设 BASE_PATH=/clash 后，服务自身全部路由挪到 /clash 之下：
  *   /clash/             使用说明页（/clash 会 301 过来）
- *   /clash/config  /clash/cfg   配置界面
+ *   /clash/cfg          配置界面
  *   /clash/api/...      配置接口
  *   /clash/sub          订阅转换
  *
- * ⚠️ 这里只改了服务端路由。页面里引用资源用的是根绝对路径（/config.css、/api/config），
- *    若 nginx 用「保留前缀」方式代理（proxy_pass 结尾不带 /），浏览器会去请求
- *    域名/config.css，落到 /clash/ 之外，nginx 直接 404。要让它完整可用，
- *    需二选一：把前端引用改成相对路径，或改用「剥掉前缀」方式代理
- *    （proxy_pass http://127.0.0.1:25500/），后者连 BASE_PATH 都不必设。
+ * 页面里的资源引用全部是相对路径（./config.css、./api/config …），无论挂在根路径还是
+ * 子路径都指向服务自身，nginx 只需一条 location：
+ *   根路径：location /       { proxy_pass http://127.0.0.1:25500; }
+ *   子路径：location /clash  { proxy_pass http://127.0.0.1:25500/clash; }
+ * ⚠️ 子路径部署时 /clash（不带尾斜杠）必须 301 到 /clash/：否则相对路径的基准目录会
+ *    算成 /，./config.css 会被解析到 /config.css 去。
  */
 function normalizeBasePath(raw) {
   const v = String(raw || '').trim().replace(/\/+$/, '');
@@ -62,7 +63,7 @@ function getLocalIPs() {
 app.use(express.json());
 
 // 所有路由都注册在这个 router 上，最后整体挂到 BASE_PATH。
-// 这样内部路径（/config、/api/...、/sub）无论部署在哪一级都不用改。
+// 这样内部路径（/cfg、/api/...、/sub）无论部署在哪一级都不用改。
 const router = express.Router();
 
 router.use(express.static(path.join(__dirname, 'public')));
@@ -80,8 +81,8 @@ router.use((req, res, next) => {
 
 // ===================== 路由 =====================
 
-// 配置页面（/cfg 是 /config 的短别名，子路径部署时可以访问 域名/clash/cfg）
-router.get(['/config', '/cfg'], (req, res) => {
+// 配置页面（子路径部署时为 域名/clash/cfg）
+router.get('/cfg', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'config.html'));
 });
 
@@ -327,7 +328,7 @@ app.listen(PORT, HOST, () => {
 
   console.log(`\n🚀 Clash 订阅转换器已启动（端口 ${PORT}）\n`);
   console.log(`   使用说明页  ${base}/`);
-  console.log(`   配置界面    ${base}/config${p ? `   （${p}/cfg 亦可）` : ''}`);
+  console.log(`   配置界面    ${base}/cfg`);
   console.log(`   订阅转换    ${base}/sub?target=clash&url=<订阅链接>`);
 
   // 监听范围：想给手机 / 其他设备填地址时看这一行

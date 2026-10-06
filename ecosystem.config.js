@@ -40,13 +40,13 @@ module.exports = {
       //    改成对应网段如 '172.17.0.0/16' 或直接 '1'。
       TRUST_PROXY: 'loopback',
 
-      // 部署子路径：想让服务挂在 http://域名/clash/ 下时设为 '/clash'，
-      // 同时 nginx 的 proxy_pass 结尾【不要】带 /（保留 /clash 前缀）。
-      // 若 nginx 那边已经剥掉了 /clash（proxy_pass 结尾带 /），这里必须留空。
-      // ⚠️ 前端页面里的接口与静态资源目前是根绝对路径（/config.css、/api/config、
-      //    /sub…），保留前缀的写法下浏览器会去请求 域名/config.css，落到 /clash
-      //    之外被 nginx 直接 404。此时要么把前端改成相对路径，要么改用剥前缀写法。
-      BASE_PATH: ''
+      // 部署子路径：服务挂在 http://域名/clash/ 下时设为 '/clash'，
+      // 此时 nginx 用【保留前缀】写法（proxy_pass 结尾带上同样的路径）：
+      //     location /clash { proxy_pass http://127.0.0.1:25500/clash; }
+      // 若挂在域名根下，这里留空 ''，nginx 写 proxy_pass http://127.0.0.1:25500;
+      // 前端资源引用已统一改为相对路径（./config.css、./api/config …），
+      // 所以两种部署方式都只要这一条 location，无需再单独转发静态资源。
+      BASE_PATH: '/clash'
     },
     // 注意：应用自带的日志写入 ./logs/app.log 与 ./logs/error.log（见 src/logger.js）。
     // PM2 自己的输出文件必须换成别的名字，否则两个写入方会交错破坏日志行。

@@ -50,7 +50,7 @@
       </table>
       <p style="font-size: 13px; color: #8b949e; margin-top: 12px;">
         ⚠️ 机场会校验拉取订阅的客户端标识。若与你的实际客户端不一致，可能被判定为「非本人操作」而作废订阅地址。
-        可在 <a href="/config">配置界面</a> → 订阅拉取设置中调整。
+        可在 <a href="./cfg">配置界面</a> → 订阅拉取设置中调整。
       </p>
       <p style="font-size: 13px; color: #8b949e; margin-top: 8px;">
         ✅ 机场下发的订阅信息（已用 / 总流量、到期时间、官网入口、订阅名称）会随响应头一并转发，<br>
@@ -70,7 +70,7 @@
       </div>
       <div class="step">
         <div class="step-num">3</div>
-        <div class="step-content">转换地址填写：<code>http://你的IP:25500/sub</code></div>
+        <div class="step-content">转换地址填写：<code id="sub-url">http://你的地址/sub</code></div>
       </div>
       <div class="step">
         <div class="step-num">4</div>
@@ -90,5 +90,14 @@
       </table>
     </div>
   </div>
+
+  <script>
+    // 转换地址按【当前访问地址】自动拼接：无论服务挂在域名根下还是子路径（如 /clash/），
+    // 这里显示的都是实际可用的地址，不用手改。
+    if (location.protocol !== 'file:') {
+      const base = location.pathname.replace(/\/+$/, ''); // '' 或 '/clash'
+      document.getElementById('sub-url').textContent = location.origin + base + '/sub';
+    }
+  </script>
 </body>
 </html>

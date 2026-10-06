@@ -27,7 +27,7 @@ window.addEventListener('DOMContentLoaded', function() {
  * 因为改动会即时写回，不存在需要重新拉取的草稿。
  */
 function loadUserConfig() {
-  fetch('/api/config').then(function(res) { return res.json(); }).then(function(data) {
+  fetch('./api/config').then(function(res) { return res.json(); }).then(function(data) {
     config = data;
     renderScope(config.scope);
     if (!config.groups) config.groups = [];
@@ -73,7 +73,7 @@ function renderScope(scope) {
 // ========== 订阅拉取 UA ==========
 
 function loadUaPresets() {
-  return fetch('/api/user-agents')
+  return fetch('./api/user-agents')
     .then(function(res) { return res.json(); })
     .then(function(data) { uaPresets = (data && data.presets) || []; })
     .catch(function() { uaPresets = []; });
@@ -198,7 +198,7 @@ function convertFile(file) {
   reader.onload = function() {
     var content = reader.result;
     // 文件内容直接转换
-    fetch('/api/convert', {
+    fetch('./api/convert', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -242,7 +242,7 @@ function doConvert() {
 
   setStatus('status-loading', '正在转换...');
 
-  fetch('/api/convert', {
+  fetch('./api/convert', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -531,7 +531,7 @@ function autosave() {
   saveInFlight = true;
   saveDirty = false;
 
-  fetch('/api/config', {
+  fetch('./api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(buildSavePayload())

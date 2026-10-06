@@ -325,5 +325,6 @@ curl "http://127.0.0.1:25500/sub?target=clash&ua=clash-verge%2Fv2.0.0&url=https:
 
 1. 启动本服务
 2. OpenClash → 全局设置 → 订阅转换
-3. 订阅转换服务地址填入：`http://你的IP:25500/sub?target=clash&url=`
+3. 订阅转换服务地址填入：`http://你的IP:25500/sub`（只填到 `/sub`，`target` 与 `url` 由 OpenClash 自动拼接）
+   - 服务挂在子路径时（`BASE_PATH=/clash`）填 `https://你的域名/clash/sub`
 4. 原始订阅链接会自动拼接

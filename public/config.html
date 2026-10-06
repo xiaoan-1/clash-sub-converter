@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>订阅转换 - 配置</title>
-  <link rel="stylesheet" href="/config.css">
+  <!-- 相对路径：无论服务挂在根还是子路径（如 /clash/），都指向服务自己，
+       nginx 只需要一条 location 转发。下同。 -->
+  <link rel="stylesheet" href="./config.css">
 </head>
 <body>
   <div class="container">
@@ -113,6 +115,6 @@
     </div>
   </div>
 
-  <script src="/config.js"></script>
+  <script src="./config.js"></script>
 </body>
 </html>
