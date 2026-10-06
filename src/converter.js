@@ -178,6 +178,10 @@ function convertToClash(proxies, options = {}) {
   const summary = {
     totalNodes: proxies.length,
     filteredNodes: activeProxies.length,
+    // 活跃节点清单，供前端把节点名填进「分组默认出口」下拉框。
+    // 一并返回 domestic 标记，前端就不必再抄一份国内关键词表
+    // （关键词表在 config/regions.json，抄过去的那一份必然与后端漂移）。
+    nodes: activeProxies.map(p => ({ name: p.name, domestic: isDomestic(p.name) })),
     groups: groupList
   };
 

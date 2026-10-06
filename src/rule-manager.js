@@ -8,9 +8,6 @@ const fs = require('fs');
 const path = require('path');
 
 const RULES_DIR = path.join(__dirname, '..', 'config', 'rules');
-const regionsPath = path.join(__dirname, '..', 'config', 'regions.json');
-const regionsConfig = JSON.parse(fs.readFileSync(regionsPath, 'utf8'));
-const CN_LABEL = regionsConfig.domestic.label; // '🇨🇳 中国大陆'
 
 class RuleManager {
   constructor() {
@@ -53,18 +50,6 @@ class RuleManager {
    */
   getById(id) {
     return this.rules.get(id) || null;
-  }
-
-  /**
-   * 获取所有分组定义（供 proxy-groups 使用）
-   * 返回 [{ id, name, type }, ...]
-   */
-  getGroupDefinitions() {
-    return this.getAll().map(r => ({
-      id: r.id,
-      name: r.name,
-      type: r.type || 'select',
-    }));
   }
 
   /**

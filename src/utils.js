@@ -1,4 +1,3 @@
-const crypto = require('crypto');
 const { pickUserAgent, FALLBACK_UA } = require('./user-agents');
 const { ruleManager } = require('./rule-manager');
 
@@ -15,50 +14,6 @@ function base64Decode(str) {
   const padding = str.length % 4;
   if (padding) str += '='.repeat(4 - padding);
   return Buffer.from(str, 'base64').toString('utf-8');
-}
-
-/**
- * Base64 编码
- */
-function base64Encode(str) {
-  return Buffer.from(str, 'utf-8').toString('base64');
-}
-
-/**
- * 生成 UUID
- */
-function generateUUID() {
-  return crypto.randomUUID();
-}
-
-/**
- * 解析 URL 参数
- */
-function parseUrlParams(urlStr) {
-  try {
-    const url = new URL(urlStr);
-    const params = {};
-    url.searchParams.forEach((value, key) => {
-      params[key] = value;
-    });
-    return params;
-  } catch {
-    return {};
-  }
-}
-
-/**
- * 判断是否为分隔线节点（用于标记分组）
- */
-function isSeparator(name) {
-  return /^-{3,}/.test(name) || /^={3,}/.test(name);
-}
-
-/**
- * 延迟函数
- */
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -361,11 +316,6 @@ function parseRuleOptions(include, exclude) {
 
 module.exports = {
   base64Decode,
-  base64Encode,
-  generateUUID,
-  parseUrlParams,
-  isSeparator,
-  sleep,
   safeJsonParse,
   fetchSubscription,
   requestSubscription,

@@ -3,7 +3,7 @@
  */
 
 // ========== 全局状态 ==========
-var allNodes = [];
+var allNodes = [];           // 最近一次转换的活跃节点 [{ name, domestic }]
 var config = { groups: [], nodeFilter: 'all', excludeKeywords: [] };
 var conversionResult = null; // 最近一次转换结果 { yaml, summary }
 var uaPresets = [];          // 订阅拉取 UA 预设（来自 /api/user-agents）
@@ -186,6 +186,7 @@ function convertFile(file) {
       .then(function(r) {
         if (!r.ok) throw new Error(r.data.error);
         conversionResult = r.data;
+        applyNodeList(r.data.summary);
         setStatus('status-ok', '转换成功，共 ' + r.data.summary.filteredNodes + ' 个节点');
         showConversionResult(r.data.summary);
       })
@@ -228,12 +229,23 @@ function doConvert() {
     .then(function(r) {
       if (!r.ok) throw new Error(r.data.error);
       conversionResult = r.data;
+      applyNodeList(r.data.summary);
       setStatus('status-ok', '转换成功，共 ' + r.data.summary.filteredNodes + ' 个节点（原始 ' + r.data.summary.totalNodes + ' 个）');
       showConversionResult(r.data.summary);
     })
     .catch(function(err) {
       setStatus('status-err', '转换失败: ' + err.message);
     });
+}
+
+/**
+ * 用转换结果里的节点清单刷新下拉框候选。
+ * 节点名只有在解析订阅之后才知道，此前 allNodes 恒为空数组，
+ * 于是「分组 → 默认出口」下拉框永远只列 3 个固定项，用户选不到具体节点。
+ */
+function applyNodeList(summary) {
+  allNodes = (summary && summary.nodes) || [];
+  renderGroups();
 }
 
 function downloadYaml() {
@@ -481,25 +493,30 @@ function clearStatus() {
   st.textContent = '';
 }
 
+/**
+ * HTML 转义。
+ * 同时用于文本位置与属性位置（value="..."、onclick="f('...')"），
+ * 而节点名直接来自订阅、完全不可信 —— 引号必须一并转义，
+ * 否则一个名为 x" onfocus="alert(1)  的节点就能闭合属性并注入任意属性/事件。
+ */
 function esc(s) {
-  var d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
+/**
+ * 下拉框候选节点名。
+ * domestic 由后端随转换结果给出（后端读 config/regions.json），
+ * 前端不再维护第二份关键词表。
+ */
 function getActiveNames() {
-  var names = allNodes.map(function(n) { return n.name; });
-  if (config.nodeFilter === 'hideDomestic') names = names.filter(function(n) { return !isDomesticNode(n); });
-  if (config.nodeFilter === 'hideInternational') names = names.filter(function(n) { return isDomesticNode(n); });
-  return names;
-}
-
-var CN_KEYWORDS = ['国内','中国','China','CN','广州','上海','北京','深圳','杭州','成都','武汉','移动','联通','电信','广电'];
-
-function isDomesticNode(name) {
-  var upper = name.toUpperCase();
-  for (var i = 0; i < CN_KEYWORDS.length; i++) {
-    if (upper.indexOf(CN_KEYWORDS[i].toUpperCase()) !== -1) return true;
-  }
-  return false;
+  return allNodes.filter(function(n) {
+    if (config.nodeFilter === 'hideDomestic') return !n.domestic;
+    if (config.nodeFilter === 'hideInternational') return n.domestic;
+    return true;
+  }).map(function(n) { return n.name; });
 }
