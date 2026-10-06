@@ -82,20 +82,23 @@ function generateProxyGroups(proxies, options = {}) {
   });
 
   // 2. ♻️ 自动选择（必须，不可禁用）
-  //    正常情况只用非国内节点测速；hideInternational 时所有节点都是国内节点，照常测速
+  //    正常情况只用非国内节点测速；hideInternational 时所有节点都是国内节点，照常测速。
+  //    该分组被「🚀 节点选择」和所有规则分组引用，因此无论如何都要创建 ——
+  //    一旦缺失，mihomo 会因 proxy not found 拒绝加载整份配置。
   const autoProxies = hideInternational
     ? activeProxies
     : activeProxies.filter(n => !domesticProxies.has(n));
-  if (autoProxies.length > 0) {
-    groups.push({
-      name: '♻️ 自动选择',
-      type: 'url-test',
-      url: 'http://www.gstatic.com/generate_204',
-      interval: 300,
-      tolerance: 50,
-      proxies: autoProxies
-    });
-  }
+  // 无非国内节点（如订阅里全是国内节点）时退化为全部活跃节点；再没有就只能直连
+  const autoTargets = autoProxies.length ? autoProxies
+    : (activeProxies.length ? activeProxies : ['DIRECT']);
+  groups.push({
+    name: '♻️ 自动选择',
+    type: 'url-test',
+    url: 'http://www.gstatic.com/generate_204',
+    interval: 300,
+    tolerance: 50,
+    proxies: autoTargets
+  });
 
   // 3. 🇨🇳 中国大陆（可选，仅在有国内节点且未隐藏时出现）
   if (!hideDomestic && domesticProxies.size > 0) {
@@ -137,11 +140,47 @@ function generateProxyGroups(proxies, options = {}) {
     proxies: ['🚀 节点选择', 'DIRECT', ...activeProxies]
   });
 
+  return sanitizeGroupRefs(groups, activeProxies);
+}
+
+/** 内核内置的代理名，无需在 groups 中定义 */
+const BUILTIN_PROXIES = new Set(['DIRECT', 'REJECT', 'PASS', 'GLOBAL']);
+
+/**
+ * 移除对不存在分组的引用，并保证每个分组至少有一项。
+ *
+ * mihomo 遇到 `proxy not found` 或空分组会拒绝加载整份配置，
+ * 宁可牺牲个别条目，也要保证输出始终能被客户端加载。
+ *
+ * @param {Array} groups
+ * @param {string[]} [proxyNames] 实际存在的节点名（引用节点是合法的，不能误删）
+ * @returns {Array} 同一个数组（就地修正）
+ */
+function sanitizeGroupRefs(groups, proxyNames = []) {
+  const valid = new Set([
+    ...groups.map(g => g.name),
+    ...BUILTIN_PROXIES,
+    ...proxyNames,
+  ]);
+
+  for (const group of groups) {
+    if (!Array.isArray(group.proxies)) continue;
+
+    const kept = group.proxies.filter(p => valid.has(p));
+    if (kept.length !== group.proxies.length) {
+      console.warn(
+        `[proxy-groups] 分组「${group.name}」移除 ${group.proxies.length - kept.length} 个不存在的引用`
+      );
+    }
+    // 空分组同样会被内核拒绝，兜底为直连
+    group.proxies = kept.length ? kept : ['DIRECT'];
+  }
   return groups;
 }
 
 module.exports = {
   generateProxyGroups,
   isDomestic,
+  sanitizeGroupRefs,
   CN_LABEL
 };
