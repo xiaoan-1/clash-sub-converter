@@ -2,7 +2,8 @@ const express = require('express');
 const path = require('path');
 const { parseSubscription, extractClashDns } = require('./src/parser');
 const { convertToClash, convertToSurge } = require('./src/converter');
-const { fetchSubscription, parseRuleOptions } = require('./src/utils');
+const { requestSubscription, parseRuleOptions, applySubscriptionHeaders } = require('./src/utils');const { readConfig } = require('./src/user-config');
+const { pickUserAgent } = require('./src/user-agents');
 const apiRouter = require('./src/api');
 
 const os = require('os');
@@ -28,6 +29,12 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
+  // 订阅元信息走自定义响应头（subscription-userinfo 等），
+  // 浏览器调用时需要显式暴露才能读到。
+  res.header(
+    'Access-Control-Expose-Headers',
+    'subscription-userinfo, profile-web-page-url, profile-update-interval, Content-Disposition'
+  );
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
@@ -64,6 +71,7 @@ app.get('/sub', async (req, res) => {
       scv,
       sort,
       append_type,
+      ua,
     } = req.query;
 
     if (!url) {
@@ -72,29 +80,83 @@ app.get('/sub', async (req, res) => {
 
     // 多个 URL 用 | 分隔
     const urls = url.split('|').map(u => u.trim()).filter(Boolean);
-    console.log(`[sub] target=${target} urls=${urls.length} include=${include || '-'} exclude=${exclude || '-'}`);
 
-    // 获取所有订阅内容
+    // 拉取订阅时使用的 UA：?ua= 显式指定 > 配置 > 透传调用方（浏览器则回退预设）
+    const callerUA = req.get('user-agent') || '';
+    const { fetch: fetchCfg = {} } = readConfig();
+    const fetchOpts = { userAgent: ua || pickUserAgent(fetchCfg, callerUA) };
+    console.log(
+      `[sub] target=${target} urls=${urls.length}` +
+      ` caller-ua="${callerUA || '(空)'}"` +
+      ` mode=${ua ? 'query' : (fetchCfg.userAgent || 'auto')}` +
+      ` -> send-ua="${fetchOpts.userAgent}"` +
+      ` include=${include || '-'} exclude=${exclude || '-'}`
+    );
+
+    // 获取所有订阅内容，同时收集机场下发的元信息（流量 / 到期 / 官网 / 文件名）
     let allContent = '';
+    const metas = [];
+    const failures = [];
     for (const u of urls) {
       try {
         const decodedUrl = u.startsWith('http') ? u : decodeURIComponent(u);
-        allContent += (allContent ? '\n' : '') + await fetchSubscription(decodedUrl);
+        const result = await requestSubscription(decodedUrl, fetchOpts);
+        allContent += (allContent ? '\n' : '') + result.text;
+        metas.push(result);
       } catch (err) {
-        console.warn(`[sub] 获取失败: ${u} - ${err.message}`);
+        // 日志/响应里隐去订阅地址中的凭据，避免泄漏 token
+        const safe = u
+          .replace(/\/\/[^@/]*@/, '//')
+          .replace(/([?&](token|sub|code|key)=)[^&]+/gi, '$1***');
+        failures.push({ url: safe, reason: err.message });
+        console.warn(`[sub] 获取失败: ${safe} - ${err.message}`);
       }
     }
 
     if (!allContent) {
-      return res.status(400).json({ error: 'Failed to fetch any subscription' });
+      // 常见原因：机场安全规则拦截（403/451）、订阅地址已失效、拉取 UA 与客户端不一致
+      const hasHttpError = failures.some(f => /HTTP 4\d\d/.test(f.reason));
+      const hint = hasHttpError
+        ? '订阅源返回了错误状态码：订阅地址可能已失效，或拉取所用 UA 被机场安全规则拦截。请先在「配置界面 → 订阅拉取设置」中选择与你客户端一致的 UA。'
+        : '无法连接到订阅源，请检查网络或订阅地址。';
+      return res.status(400).json({ error: 'Failed to fetch any subscription', hint, failures });
     }
 
-    const proxies = parseSubscription(allContent);
+    const proxies = [];
+    // 多订阅必须分别解析再合并：把多份 YAML 直接拼接会产生重复根键，
+    // yaml.load 会直接失败（表现为「No valid proxies found」）。
+    const sources = metas.length > 1 ? metas.map(m => m.text) : [allContent];
+    const seenNames = new Set();
+    let dropped = 0;
+    for (const text of sources) {
+      for (const proxy of parseSubscription(text)) {
+        const name = String(proxy.name || '').trim();
+        // mihomo 不允许代理重名，合并多份订阅时保留先出现的那个
+        if (name && seenNames.has(name)) {
+          dropped++;
+          continue;
+        }
+        if (name) seenNames.add(name);
+        proxies.push(proxy);
+      }
+    }
+    if (dropped) console.log(`[sub] 合并多订阅时丢弃 ${dropped} 个同名节点`);
+
     if (proxies.length === 0) {
       return res.status(400).json({ error: 'No valid proxies found' });
     }
 
     console.log(`[sub] 解析到 ${proxies.length} 个节点`);
+
+    // 把机场的流量 / 到期 / 官网信息转发给客户端，否则 Clash 面板上订阅详情为空白
+    applySubscriptionHeaders(res, metas);
+    const forwarded = ['subscription-userinfo', 'profile-web-page-url',
+      'profile-update-interval', 'Content-Disposition']
+      .filter(h => res.getHeader(h))
+      .map(h => `${h}=${res.getHeader(h)}`);
+    console.log(forwarded.length
+      ? `[sub] 已转发订阅信息: ${forwarded.join(' | ')}`
+      : '[sub] 订阅源未下发流量 / 到期信息（该机场不支持）');
 
     const ruleOptions = parseRuleOptions(include, exclude);
 
@@ -102,7 +164,7 @@ app.get('/sub', async (req, res) => {
       res.type('text/plain').send(convertToSurge(proxies, { ruleOptions }));
     } else {
       // 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
-      const srcDns = extractClashDns(allContent);
+      const srcDns = extractClashDns(sources[0]);
       const convertOptions = { ruleOptions };
       if (srcDns) convertOptions.dns = srcDns;
       res.type('text/yaml').send(convertToClash(proxies, convertOptions).yaml);

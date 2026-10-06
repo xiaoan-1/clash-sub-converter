@@ -1,5 +1,9 @@
 {
   "subscriptions": [],
+  "fetch": {
+    "userAgent": "auto",
+    "customUserAgent": ""
+  },
   "nodeFilters": {
     "hideDomestic": true,
     "hideInternational": false

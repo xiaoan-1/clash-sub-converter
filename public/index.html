@@ -46,7 +46,16 @@
         <tr><td><code>udp</code></td><td>启用 UDP 转发</td><td><code>true</code></td></tr>
         <tr><td><code>scv</code></td><td>跳过证书验证</td><td><code>true</code></td></tr>
         <tr><td><code>sort</code></td><td>节点排序</td><td><code>true</code></td></tr>
+        <tr><td><code>ua</code></td><td>拉取订阅时使用的 UA（默认透传调用方的客户端 UA）</td><td><code>clash-verge/v2.0.0</code></td></tr>
       </table>
+      <p style="font-size: 13px; color: #8b949e; margin-top: 12px;">
+        ⚠️ 机场会校验拉取订阅的客户端标识。若与你的实际客户端不一致，可能被判定为「非本人操作」而作废订阅地址。
+        可在 <a href="/config">配置界面</a> → 订阅拉取设置中调整。
+      </p>
+      <p style="font-size: 13px; color: #8b949e; margin-top: 8px;">
+        ✅ 机场下发的订阅信息（已用 / 总流量、到期时间、官网入口、订阅名称）会随响应头一并转发，<br>
+        Clash Verge / ClashX 等客户端的订阅详情页可正常显示。
+      </p>
     </div>
 
     <div class="card">

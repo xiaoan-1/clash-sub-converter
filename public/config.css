@@ -65,6 +65,11 @@ h3 { font-size: 14px; margin-bottom: 6px; }
 .kw-preset:hover { border-color: #4a90d9; color: #4a90d9; background: #f0f7ff; }
 .kw-preset.used { opacity: 0.3; pointer-events: none; }
 
+/* ===== 订阅拉取 UA ===== */
+.ua-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.ua-label { font-size: 13px; color: #333; flex-shrink: 0; }
+.ua-row .group-select { flex: 1; }
+
 /* ===== 转换结果 ===== */
 .result-summary { font-size: 13px; color: #666; margin-bottom: 14px; padding: 10px 14px; background: #f6ffed; border: 1px solid #b7eb8f; border-radius: 8px; }
 .result-group-card { border: 1px solid #e8e8e8; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; background: #fafafa; }

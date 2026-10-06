@@ -1,62 +1,25 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 const { fetchSubscription } = require('./utils');
+const { readConfig, saveConfig } = require('./user-config');
+const { listPresets, pickUserAgent } = require('./user-agents');
 const { parseSubscription, extractClashDns } = require('./parser');
 const { isDomestic, CN_LABEL } = require('./proxy-groups');
 const { ruleManager } = require('./rule-manager');
 const { convertToClash } = require('./converter');
 
 const router = express.Router();
-const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.json');
-const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'config', 'default.json');
 
 // ===================== 工具函数 =====================
 
 /**
- * 加载 default.json 作为基准，再叠加 config.json 中的用户修改
- * 这样新增到 default.json 的分组无需用户重建 config.json 即可自动出现
+ * 解析本次拉取应使用的 UA
+ * @param {Object} req      express 请求
+ * @param {string} override 请求体里显式指定的 UA（优先级最高）
  */
-function loadDefaultConfig() {
-  try {
-    return JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
-  } catch {
-    return { subscriptions: [], groups: [], nodeFilters: {}, excludeKeywords: [] };
-  }
-}
-
-function readConfig() {
-  const def = loadDefaultConfig();
-
-  let user = { subscriptions: [], nodeFilters: {}, excludeKeywords: [], groupOverrides: {} };
-  try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      user = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    }
-  } catch { /* ignore */ }
-
-  // 合并：default 分组 + 用户覆盖
-  const overrides = user.groupOverrides || {};
-  const groups = (def.groups || []).map(dg => {
-    const key = dg.ruleId || dg.builtin;
-    const ov = overrides[key] || {};
-    return {
-      ...dg,
-      ...ov,
-      enabled: ov.enabled !== undefined ? ov.enabled : (dg.enabled !== false),
-    };
-  });
-
-  return {
-    subscriptions: user.subscriptions || [],
-    nodeFilters: user.nodeFilters || def.nodeFilters || {},
-    excludeKeywords: user.excludeKeywords || [],
-    groups,
-  };
-}
-
-function writeConfig(config) {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+function uaOptions(req, override) {
+  const { fetch: fetchCfg = {} } = readConfig();
+  const callerUA = req.get('user-agent') || '';
+  return { userAgent: override || pickUserAgent(fetchCfg, callerUA) };
 }
 
 // ===================== 订阅解析 =====================
@@ -68,10 +31,10 @@ function writeConfig(config) {
  */
 router.post('/parse', async (req, res) => {
   try {
-    const { url } = req.body;
+    const { url, userAgent } = req.body;
     if (!url) return res.status(400).json({ error: '缺少 url 参数' });
 
-    const content = await fetchSubscription(url);
+    const content = await fetchSubscription(url, uaOptions(req, userAgent));
     const proxies = parseSubscription(content);
 
     const nodes = proxies.map(p => ({
@@ -128,7 +91,7 @@ router.post('/convert-file', (req, res) => {
  */
 router.post('/convert', async (req, res) => {
   try {
-    const { urls = [], nodeFilter = 'all', excludeKeywords = [], rawContent } = req.body;
+    const { urls = [], nodeFilter = 'all', excludeKeywords = [], rawContent, userAgent } = req.body;
 
     let allContent = '';
 
@@ -139,9 +102,10 @@ router.post('/convert', async (req, res) => {
       if (!urls.length) {
         return res.status(400).json({ error: '缺少订阅链接' });
       }
+      const fetchOpts = uaOptions(req, userAgent);
       for (const u of urls) {
         try {
-          const text = await fetchSubscription(u);
+          const text = await fetchSubscription(u, fetchOpts);
           allContent += (allContent ? '\n' : '') + text;
         } catch (err) {
           console.warn(`[api/convert] 获取失败: ${u} - ${err.message}`);
@@ -183,6 +147,14 @@ router.post('/convert', async (req, res) => {
 // ===================== 用户配置 =====================
 
 /**
+ * GET /api/user-agents
+ * 返回可选客户端 UA 预设
+ */
+router.get('/user-agents', (req, res) => {
+  res.json({ presets: listPresets() });
+});
+
+/**
  * GET /api/config
  * 返回当前用户配置（回退到 default.json）
  */
@@ -201,35 +173,8 @@ router.post('/config', (req, res) => {
       return res.status(400).json({ error: '无效的配置格式' });
     }
 
-    const def = loadDefaultConfig();
-    const defGroupMap = {};
-    (def.groups || []).forEach(g => {
-      const key = g.ruleId || g.builtin;
-      if (key) defGroupMap[key] = g;
-    });
-
-    // 计算分组覆盖：只存与默认值不同的字段
-    const groupOverrides = {};
-    (newConfig.groups || []).forEach(g => {
-      const key = g.ruleId || g.builtin;
-      const dg = defGroupMap[key];
-      if (!dg) return;
-
-      const ov = {};
-      const defEnabled = dg.enabled !== false;
-      if (g.enabled !== undefined && g.enabled !== defEnabled) ov.enabled = g.enabled;
-      if (g.type !== undefined && g.type !== dg.type) ov.type = g.type;
-      if (g.defaultProxy !== undefined && g.defaultProxy !== dg.defaultProxy) ov.defaultProxy = g.defaultProxy;
-      if (Object.keys(ov).length > 0) groupOverrides[key] = ov;
-    });
-
-    writeConfig({
-      subscriptions: newConfig.subscriptions || [],
-      nodeFilters: newConfig.nodeFilters || def.nodeFilters || {},
-      excludeKeywords: newConfig.excludeKeywords || [],
-      groupOverrides,
-    });
-    res.json({ success: true });
+    const saved = saveConfig(newConfig);
+    res.json({ success: true, config: saved });
   } catch (err) {
     console.error('[api/config]', err.message);
     res.status(500).json({ error: '保存失败: ' + err.message });

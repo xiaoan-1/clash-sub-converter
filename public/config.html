@@ -74,6 +74,23 @@
         <div class="kw-presets" id="kwPresets"></div>
       </div>
 
+      <!-- 订阅拉取设置 -->
+      <div class="card">
+        <h2>订阅拉取设置</h2>
+        <div class="kw-hint">
+          转换器代拉订阅时发送的客户端标识（User-Agent）。若与实际客户端不一致，
+          机场可能判定为「非本人操作 / 订阅地址泄漏」而作废订阅地址。
+        </div>
+        <div class="ua-row">
+          <label class="ua-label" for="uaSelect">客户端标识</label>
+          <select id="uaSelect" class="group-select" onchange="onUaChange()"></select>
+        </div>
+        <div class="kw-hint" id="uaNote"></div>
+        <div class="kw-input-row" id="uaCustomRow" style="display:none">
+          <input type="text" id="uaCustomInput" placeholder="例如：clash-verge/v2.0.0" oninput="onUaCustomInput()">
+        </div>
+      </div>
+
       <!-- 分组配置 -->
       <div class="card">
         <h2>分组配置</h2>

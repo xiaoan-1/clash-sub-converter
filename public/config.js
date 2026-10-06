@@ -6,11 +6,13 @@
 var allNodes = [];
 var config = { groups: [], nodeFilter: 'all', excludeKeywords: [] };
 var conversionResult = null; // 最近一次转换结果 { yaml, summary }
+var uaPresets = [];          // 订阅拉取 UA 预设（来自 /api/user-agents）
 
 var KW_PRESETS = ['流量', '官网', '套餐', '到期', '剩余', '应急', '免费', '测试', '失效', '过期', '活动', '优惠', '推荐', '广告', '回国', '禁止', 'ipv6', '中转', '隧道', '倍率', '专线', '-----'];
 
 window.addEventListener('DOMContentLoaded', function() {
-  loadConfig();
+  // 先拿到 UA 预设，再渲染配置，避免选择器为空
+  loadUaPresets().then(function() { loadConfig(); });
   initFileZone();
 });
 
@@ -31,14 +33,82 @@ function loadConfig() {
       }
     }
     if (!Array.isArray(config.excludeKeywords)) config.excludeKeywords = [];
+    if (!config.fetch) config.fetch = { userAgent: 'auto', customUserAgent: '' };
+    if (!config.fetch.userAgent) config.fetch.userAgent = 'auto';
     updateSegUI('filterSeg', config.nodeFilter);
     renderKeywords();
     renderPresets();
+    renderUa();
     renderGroups();
   }).catch(function() {
-    config = { subscriptions: [], groups: [], nodeFilter: 'all', excludeKeywords: [] };
+    config = { subscriptions: [], groups: [], nodeFilter: 'all', excludeKeywords: [], fetch: { userAgent: 'auto', customUserAgent: '' } };
+    renderUa();
     renderGroups();
   });
+}
+
+// ========== 订阅拉取 UA ==========
+
+function loadUaPresets() {
+  return fetch('/api/user-agents')
+    .then(function(res) { return res.json(); })
+    .then(function(data) { uaPresets = (data && data.presets) || []; })
+    .catch(function() { uaPresets = []; });
+}
+
+function findUaPreset(id) {
+  for (var i = 0; i < uaPresets.length; i++) {
+    if (uaPresets[i].id === id) return uaPresets[i];
+  }
+  return null;
+}
+
+function renderUa() {
+  var sel = document.getElementById('uaSelect');
+  if (!sel) return;
+  if (!config.fetch) config.fetch = { userAgent: 'auto', customUserAgent: '' };
+  if (!config.fetch.userAgent) config.fetch.userAgent = 'auto';
+
+  sel.innerHTML = uaPresets.map(function(p) {
+    var label = p.name + (p.platform ? ' — ' + p.platform : '');
+    return '<option value="' + esc(p.id) + '"' + (p.id === config.fetch.userAgent ? ' selected' : '') + '>'
+      + esc(label) + '</option>';
+  }).join('');
+
+  updateUaUi();
+}
+
+function updateUaUi() {
+  var cur = config.fetch.userAgent;
+  var preset = findUaPreset(cur);
+  var customRow = document.getElementById('uaCustomRow');
+  var customInput = document.getElementById('uaCustomInput');
+  var note = document.getElementById('uaNote');
+  if (!note) return;
+
+  if (cur === 'custom') {
+    customRow.style.display = 'flex';
+    if (customInput) customInput.value = config.fetch.customUserAgent || '';
+    note.textContent = (preset && preset.note) ? preset.note : '自定义 UA 将原样发送';
+    return;
+  }
+
+  customRow.style.display = 'none';
+  if (cur === 'auto') {
+    note.textContent = (preset && preset.note) || '透传调用方 UA';
+  } else {
+    note.textContent = '将发送：' + (preset ? preset.ua : '(未知预设)');
+  }
+}
+
+function onUaChange() {
+  var sel = document.getElementById('uaSelect');
+  config.fetch.userAgent = sel.value;
+  updateUaUi();
+}
+
+function onUaCustomInput() {
+  config.fetch.customUserAgent = document.getElementById('uaCustomInput').value;
 }
 
 // ========== URL 管理 ==========

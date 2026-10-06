@@ -12,6 +12,8 @@
 - **Web 配置界面** — 可视化管理过滤规则、分组策略、排除关键词
 - **RESTful API** — 完整的 CRUD 接口，支持规则管理、配置持久化
 - **OpenClash 兼容** — 提供 `/sub` 端点，可直接填入 OpenClash 使用
+- **拉取 UA 可配置** — 可透传客户端 UA 或指定预设，避免机场误判为「订阅地址泄漏」
+- **订阅信息透传** — 转发机场的流量 / 到期 / 官网 / 订阅名响应头，Clash Verge 等客户端可正常显示订阅详情
 - **节点过滤** — 支持隐藏国内/国际节点、22 个预设关键词排除
 - **本地路由** — 内置局域网 / 私有 IP / GEOIP 直连规则，无需额外配置
 
@@ -57,6 +59,8 @@ clash-sub-converter/
 ├── package.json
 ├── ecosystem.config.js        # PM2 配置
 ├── config/
+│   ├── default.json           # 基准配置（21 个分组定义，纳入版本控制）
+│   ├── config.json            # 用户配置（仅存差异，被 .gitignore 忽略）
 │   ├── regions.json           # 地区分组（22 个地区）
 │   └── rules/                 # 分流规则（18 个 JSON 文件）
 │       ├── common.json        # 系统规则（本地路由，始终生效）
@@ -83,6 +87,8 @@ clash-sub-converter/
 │   ├── rule-manager.js        # 规则管理器
 │   ├── converter.js           # 转换引擎 → Clash YAML
 │   ├── api.js                 # API 路由
+│   ├── user-config.js         # 用户配置读写（default.json + config.json 合并）
+│   ├── user-agents.js         # 拉取订阅的 UA 预设与解析
 │   └── utils.js               # 工具函数
 ├── public/
 │   ├── index.html             # 首页（使用说明）
@@ -109,6 +115,7 @@ clash-sub-converter/
 | `POST` | `/api/parse` | 解析订阅，返回节点列表 |
 | `GET` | `/sub` | OpenClash 兼容端点 |
 | `GET/POST` | `/api/config` | 用户配置读写 |
+| `GET` | `/api/user-agents` | 可选客户端 UA 预设列表 |
 | `GET/POST` | `/api/rules` | 分流规则管理 |
 | `GET/PUT/DELETE` | `/api/rules/:id` | 单条规则 CRUD |
 
@@ -122,7 +129,47 @@ curl -X POST http://127.0.0.1:25500/api/convert \
 
 # OpenClash 兼容端点
 curl "http://127.0.0.1:25500/sub?target=clash&url=https://sub.example.com/link"
+
+# 指定拉取 UA（若默认透传的 UA 被机场拦截）
+curl "http://127.0.0.1:25500/sub?target=clash&ua=clash-verge%2Fv2.0.0&url=https://sub.example.com/link"
 ```
+
+## 订阅拉取 UA
+
+转换器代替客户端去拉取机场订阅，机场看到的是**转换器发出的 UA**，而非你实际客户端的 UA。
+若两者不一致（例如你用 Clash Verge，转换器却以 `ClashForAndroid` 拉取），
+部分机场的安全规则会判定为「非本人操作 / 订阅地址可能已泄露」，进而**作废订阅地址**并发送提醒邮件。
+
+因此拉取 UA 可配置，在「配置界面 → 订阅拉取设置」中调整：
+
+| 模式 | 行为 |
+|------|------|
+| **跟随调用方（推荐）** | 调用方是已知代理客户端时，把其 UA 原样转发给机场，转换器对外完全透明；浏览器 / `curl` / `node` 等非客户端请求回退到 Clash Verge |
+| **预设客户端** | 固定使用某个客户端的 UA（Clash Verge / OpenClash / mihomo / Clash for Windows / Stash / Shadowrocket …） |
+| **自定义** | 手动填写。用抓包得到的真实 UA 最准确 |
+
+优先级：`?ua=` 查询参数 > 配置中的模式 > 默认（Clash Verge）。
+
+> 若你的机场对 UA 校验较严，请先在客户端或路由器上抓包，拿到真实 UA 后选「自定义」填入。
+
+## 订阅信息（流量 / 到期）
+
+机场把订阅的流量、到期时间、官网地址等信息放在 **HTTP 响应头**里，而不是 YAML 正文中。
+若转换器只转发正文，Clash Verge / ClashX 等客户端的订阅详情页就会是空白，也无法一键跳转机场官网。
+
+`/sub` 现已转发下列响应头：
+
+| 响应头 | 作用 |
+|--------|------|
+| `subscription-userinfo` | 已用 / 总流量与到期时间（客户端展示的核心数据） |
+| `profile-web-page-url` | 机场官网入口 |
+| `profile-update-interval` | 客户端自动更新间隔 |
+| `Content-Disposition` | 订阅名称 |
+
+多订阅（`|` 分隔）合并时，流量累加、到期取最早；同名节点只保留一个。
+
+> 转换器终端会打印 `[sub] 已转发订阅信息: ...`。若显示「订阅源未下发流量 / 到期信息」，
+> 说明该机场本就不提供这些头，与转换器无关。
 
 ## 支持的协议
 
