@@ -1,7 +1,8 @@
 const express = require('express');
 const { parseSubscriptionList, extractClashDns } = require('../src/parser');
 const { convertToClash, convertToSurge } = require('../src/converter');
-const { requestSubscription, parseRuleOptions, applySubscriptionHeaders } = require('../src/utils');
+const { requestSubscription, applySubscriptionHeaders } = require('../src/fetcher');
+const { parseRuleOptions } = require('../src/rule-groups');
 const { readConfig } = require('../src/user/user-config');
 const { resolveUserAgent } = require('../src/user/user-agents');
 const guests = require('../src/user/guests');

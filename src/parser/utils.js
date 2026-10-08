@@ -1,7 +1,7 @@
 /**
  * 协议解析器共用工具
  */
-const { base64Decode } = require('../utils');
+const { base64Decode } = require('../utils/encoding');
 
 /**
  * decodeURIComponent 的安全包装。

@@ -1,5 +1,6 @@
 {
   "id": "telegram",
+  "aliases": ["telegram", "tg"],
   "name": "💬 Telegram",
   "type": "select",
   "rules": [

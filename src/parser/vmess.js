@@ -2,7 +2,7 @@
  * VMess 解析
  * 格式: vmess://base64({json})
  */
-const { base64Decode, safeJsonParse } = require('../utils');
+const { base64Decode, safeJsonParse } = require('../utils/encoding');
 
 function parseVmess(link) {
   const b64 = link.replace('vmess://', '');

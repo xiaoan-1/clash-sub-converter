@@ -1,5 +1,6 @@
 {
   "id": "pixiv",
+  "aliases": ["pixiv", "pix"],
   "name": "🎨 Pixiv",
   "type": "select",
   "rules": [

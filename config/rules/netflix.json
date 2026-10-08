@@ -1,5 +1,6 @@
 {
   "id": "netflix",
+  "aliases": ["netflix", "nf"],
   "name": "🎬 Netflix",
   "type": "select",
   "rules": [

@@ -1,5 +1,6 @@
 {
   "id": "youtube",
+  "aliases": ["youtube", "ytb"],
   "name": "📺 YouTube",
   "type": "select",
   "rules": [

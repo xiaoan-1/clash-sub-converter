@@ -26,7 +26,7 @@
 const fs = require('fs');
 const path = require('path');
 const { ruleManager } = require('../rule-manager');
-const { ruleGroupKeys } = require('../utils');
+const { ruleGroupKeys } = require('../rule-groups');
 const guests = require('./guests');
 const logger = require('../logger');
 

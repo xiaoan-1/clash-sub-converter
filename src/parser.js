@@ -1,5 +1,5 @@
 const yaml = require('js-yaml');
-const { base64Decode } = require('./utils');
+const { base64Decode } = require('./utils/encoding');
 const logger = require('./logger');
 
 const log = logger.create('parser');

@@ -194,7 +194,11 @@ clash-sub-converter/
 │   │   ├── guests.js          # 访客识别（IP / ADMIN_IPS / TRUST_PROXY）与访客配置文件管理
 │   │   └── user-agents.js     # 拉取订阅的 UA 预设与解析
 │   ├── logger.js              # 日志（写 logs/，分级 + 请求编号 + URL 脱敏）
-│   └── utils.js               # 工具函数
+│   ├── fetcher.js             # 订阅拉取 + 错误诊断 + 元信息响应头转发
+│   ├── rule-groups.js         # 规则组别名与 include/exclude 匹配
+│   └── utils/                 # 纯工具（不依赖其他业务模块）
+│       ├── encoding.js        # Base64 / JSON 解析
+│       └── subscription-meta.js # 订阅元信息头解析（流量/到期/官网/文件名）
 ├── logs/                      # 运行日志（被 .gitignore 忽略）
 │   ├── app.log                # 全量流程日志
 │   └── error.log              # 仅 WARN / ERROR

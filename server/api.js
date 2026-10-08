@@ -1,5 +1,5 @@
 const express = require('express');
-const { fetchSubscription } = require('../src/utils');
+const { fetchSubscription } = require('../src/fetcher');
 const { readConfig, saveConfig } = require('../src/user/user-config');
 const { listPresets, resolveUserAgent } = require('../src/user/user-agents');
 const { parseSubscription, parseSubscriptionList, extractClashDns } = require('../src/parser');

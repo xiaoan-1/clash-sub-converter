@@ -1,5 +1,6 @@
 {
   "id": "bahamut",
+  "aliases": ["bahamut", "巴哈姆特"],
   "name": "🎮 巴哈姆特",
   "type": "select",
   "proxyStrategy": "international",

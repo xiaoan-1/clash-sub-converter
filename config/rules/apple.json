@@ -1,5 +1,6 @@
 {
   "id": "apple",
+  "aliases": ["apple", "苹果", "icloud", "appstore"],
   "name": "🍎 Apple 服务",
   "type": "select",
   "rules": [

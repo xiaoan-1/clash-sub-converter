@@ -1,5 +1,6 @@
 {
   "id": "github",
+  "aliases": ["github", "gh"],
   "name": "⌨️ GitHub",
   "type": "select",
   "rules": [

@@ -1,7 +1,7 @@
 /**
  * Shadowsocks / ShadowsocksR 解析（同族共享 userinfo 解析）
  */
-const { base64Decode } = require('../utils');
+const { base64Decode } = require('../utils/encoding');
 const { safeDecodeURIComponent, parseSsUserInfo } = require('./utils');
 
 /**

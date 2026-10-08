@@ -1,5 +1,6 @@
 {
   "id": "steam-download",
+  "aliases": ["steam-download", "steam下载", "steam下载/联机", "steam联机"],
   "name": "🎮 Steam 下载/联机",
   "type": "select",
   "rules": [

@@ -1,5 +1,6 @@
 {
   "id": "microsoft",
+  "aliases": ["microsoft", "微软", "onedrive", "bing"],
   "name": "Ⓜ️ 微软服务",
   "type": "select",
   "rules": [

@@ -14,6 +14,12 @@
  * ----------------
  * 订阅地址普遍把 token 直接写在路径或查询串里，**绝不允许原样落盘**。
  * 所有 URL 必须先过 safeUrl() 再进日志；写日志时不要传 headers 对象。
+ *
+ * 结构说明
+ * --------
+ * 写盘涉及可变状态（目录是否已建、文件是否已损坏降级），因此封装为 Logger 类，
+ * 状态是实例私有字段而非模块级变量：便于测试（可注入临时目录）与将来扩展多实例。
+ * 纯函数（脱敏 / 预览 / 错误翻译等）保持模块级导出，调用方无状态依赖。
  */
 
 const fs = require('fs');
@@ -56,50 +62,7 @@ const MAX_PREVIEW_LEN = 300;
 /** 正文预览超过这个体积就不读了，避免把大文件拉进内存 */
 const MAX_PREVIEW_SOURCE_BYTES = 1024 * 1024;
 
-let dirReady = false;
-let fileBroken = false;
-
-// ===================== 基础设施 =====================
-
-function ensureDir() {
-  if (dirReady) return true;
-  try {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
-    dirReady = true;
-    return true;
-  } catch (err) {
-    if (!fileBroken) {
-      fileBroken = true;
-      process.stderr.write(`[logger] 无法创建日志目录 ${LOG_DIR}: ${err.message}（后续日志仅输出到控制台）\n`);
-    }
-    return false;
-  }
-}
-
-/** 超过上限就把当前文件改名为 .1（先删旧的，Windows 上 rename 不覆盖已存在文件） */
-function rotate(file) {
-  let size;
-  try {
-    size = fs.statSync(file).size;
-  } catch {
-    return; // 文件还不存在
-  }
-  if (size < MAX_BYTES) return;
-  try { fs.rmSync(`${file}.1`, { force: true }); } catch { /* 忽略 */ }
-  try { fs.renameSync(file, `${file}.1`); } catch { /* 忽略 */ }
-}
-
-function emit(file, line) {
-  if (fileBroken) return;
-  if (!ensureDir()) return;
-  try {
-    rotate(file);
-    fs.appendFileSync(file, line, 'utf-8');
-  } catch (err) {
-    fileBroken = true;
-    process.stderr.write(`[logger] 写入 ${file} 失败: ${err.message}（后续日志仅输出到控制台）\n`);
-  }
-}
+// ===================== 无状态纯函数 =====================
 
 function timestamp() {
   const d = new Date();
@@ -139,8 +102,6 @@ function stackOf(err) {
   const lines = String(err.stack).split('\n').slice(0, 6).join(' <- ');
   return truncate(lines.replace(/\s+/g, ' '));
 }
-
-// ===================== 错误与安全文本处理 =====================
 
 /** 看起来像凭据的键名（查询串 / JSON / kv 三种形态共用） */
 const SECRET_KEYS = 'token|sub|code|key|auth|pwd|passwd|password|sign|secret|access_key';
@@ -283,62 +244,31 @@ function httpHint(status) {
   return undefined;
 }
 
-function write(level, scope, msg, data) {
-  let line = `${timestamp()} ${level.toUpperCase().padEnd(5)} [${scope}] ${msg}`;
-
-  if (data && typeof data === 'object') {
-    const parts = [];
-    for (const [k, v] of Object.entries(data)) {
-      if (v === undefined) continue;
-      parts.push(`${k}=${fmtValue(v)}`);
-    }
-    if (parts.length) line += ' ' + parts.join(' ');
-  }
-  line += '\n';
-
-  if (LEVELS[level] >= FILE_LEVEL) emit(APP_LOG, line);
-  if (LEVELS[level] >= LEVELS.warn) emit(ERR_LOG, line);
-
-  if (LEVELS[level] >= CONSOLE_LEVEL) {
-    (level === 'error' ? process.stderr : process.stdout).write(line);
-  }
+/**
+ * 订阅地址脱敏。
+ * 保留主机名与路径轮廓（才知道是哪家机场、哪个端点），
+ * 抹掉 userinfo、常见凭据参数、以及路径里的长随机串（订阅路径本身就是凭据）。
+ */
+function safeUrl(raw) {
+  let s = String(raw === null || raw === undefined ? '' : raw);
+  if (!s) return '(空)';
+  // https://user:pass@host/... → https://host/...
+  s = s.replace(/\/\/[^@/]*@/g, '//');
+  // ?token=xxx&code=yyy → ?token=***&code=***
+  s = redactSecrets(s);
+  // /AbCd1234...(≥24 位) → /***
+  s = s.replace(/(\/[A-Za-z0-9_-]{24,})(?=[/?&#]|$)/g, '/***');
+  return truncate(s);
 }
 
-// ===================== 对外 API =====================
-
-/**
- * 创建一个带 scope 的 logger。scope 会出现在每行日志的 [ ] 里，
- * 便于 grep 单个请求（如 `[sub#3f9a1c]`）或单个模块（如 `[parser]`）。
- *
- * @param {string} scope
- * @returns {{debug:Function,info:Function,warn:Function,error:Function,fail:Function}}
- */
-function create(scope) {
-  const s = scope || 'app';
-  return {
-    debug: (msg, data) => write('debug', s, msg, data),
-    info: (msg, data) => write('info', s, msg, data),
-    warn: (msg, data) => write('warn', s, msg, data),
-    error: (msg, data) => write('error', s, msg, data),
-    /**
-     * 记录一个异常（含截断的调用栈与网络错误码）。catch 块统一用它，
-     * 避免各处手写 err.message / err.stack 时漏掉栈，也避免只写下一句
-     * 毫无信息量的 `fetch failed`。
-     */
-    fail: (msg, err, data) => {
-      const d = describeError(err);
-      return write('error', s, msg, {
-        err: d.reason,
-        code: d.code,
-        'net-code': d['net-code'],
-        'net-hint': d['net-hint'],
-        'net-cause': d['net-cause'],
-        'net-detail': d['net-detail'],
-        ...(data || {}),
-        stack: stackOf(err),
-      });
-    },
-  };
+/** 类型直方图，如 { vmess: 80, ss: 60 } */
+function countBy(list, pick) {
+  const out = {};
+  for (const item of list || []) {
+    const k = String(pick(item) || 'unknown');
+    out[k] = (out[k] || 0) + 1;
+  }
+  return out;
 }
 
 /** 6 位十六进制请求号，用于把同一请求的多行日志串起来 */
@@ -368,35 +298,161 @@ function formatBytes(n) {
   return `${(n / 1024 / 1024).toFixed(2)}MB`;
 }
 
+// ===================== 有状态：Logger 类 =====================
+
 /**
- * 订阅地址脱敏。
- * 保留主机名与路径轮廓（才知道是哪家机场、哪个端点），
- * 抹掉 userinfo、常见凭据参数、以及路径里的长随机串（订阅路径本身就是凭据）。
+ * 日志写入器。
+ *
+ * 封装写盘相关的可变状态：
+ *   - #dirReady   日志目录是否已确认存在（避免每次写都 mkdir）
+ *   - #fileBroken 写盘是否已失败降级（一旦失败就只走控制台，不再反复尝试/刷屏）
+ *
+ * 状态放在实例上而非模块级变量：可注入自定义目录（测试用临时目录），
+ * 也便于将来按子系统拆分多个日志文件。
  */
-function safeUrl(raw) {
-  let s = String(raw === null || raw === undefined ? '' : raw);
-  if (!s) return '(空)';
-  // https://user:pass@host/... → https://host/...
-  s = s.replace(/\/\/[^@/]*@/g, '//');
-  // ?token=xxx&code=yyy → ?token=***&code=***
-  s = redactSecrets(s);
-  // /AbCd1234...(≥24 位) → /***
-  s = s.replace(/(\/[A-Za-z0-9_-]{24,})(?=[/?&#]|$)/g, '/***');
-  return truncate(s);
+class Logger {
+  /** @type {boolean} 日志目录是否已确认存在 */
+  #dirReady = false;
+  /** @type {boolean} 写盘是否已失败并降级为「仅控制台」 */
+  #fileBroken = false;
+
+  /**
+   * @param {Object} [options]
+   * @param {string} [options.logDir]     日志目录
+   * @param {string} [options.appLog]     全量日志文件路径
+   * @param {string} [options.errLog]     warn/error 日志文件路径
+   * @param {number} [options.fileLevel]  文件记录的最低级别（数值）
+   * @param {number} [options.consoleLevel] 控制台输出的最低级别（数值）
+   * @param {number} [options.maxBytes]   单文件体积上限
+   */
+  constructor(options = {}) {
+    this.logDir = options.logDir || LOG_DIR;
+    this.appLog = options.appLog || path.join(this.logDir, 'app.log');
+    this.errLog = options.errLog || path.join(this.logDir, 'error.log');
+    this.fileLevel = options.fileLevel ?? FILE_LEVEL;
+    this.consoleLevel = options.consoleLevel ?? CONSOLE_LEVEL;
+    this.maxBytes = options.maxBytes ?? MAX_BYTES;
+  }
+
+  /** 写盘是否已降级为「仅控制台」（供诊断/测试观察） */
+  get fileBroken() {
+    return this.#fileBroken;
+  }
+
+  #ensureDir() {
+    if (this.#dirReady) return true;
+    try {
+      fs.mkdirSync(this.logDir, { recursive: true });
+      this.#dirReady = true;
+      return true;
+    } catch (err) {
+      this.#degrade(`无法创建日志目录 ${this.logDir}: ${err.message}`);
+      return false;
+    }
+  }
+
+  /** 标记写盘失败并降级（只提示一次，避免每次写都刷屏） */
+  #degrade(reason) {
+    if (this.#fileBroken) return;
+    this.#fileBroken = true;
+    process.stderr.write(`[logger] ${reason}（后续日志仅输出到控制台）\n`);
+  }
+
+  /** 超过上限就把当前文件改名为 .1（先删旧的，Windows 上 rename 不覆盖已存在文件） */
+  #rotate(file) {
+    let size;
+    try {
+      size = fs.statSync(file).size;
+    } catch {
+      return; // 文件还不存在
+    }
+    if (size < this.maxBytes) return;
+    try { fs.rmSync(`${file}.1`, { force: true }); } catch { /* 忽略 */ }
+    try { fs.renameSync(file, `${file}.1`); } catch { /* 忽略 */ }
+  }
+
+  #emit(file, line) {
+    if (this.#fileBroken) return;
+    if (!this.#ensureDir()) return;
+    try {
+      this.#rotate(file);
+      fs.appendFileSync(file, line, 'utf-8');
+    } catch (err) {
+      this.#degrade(`写入 ${file} 失败: ${err.message}`);
+    }
+  }
+
+  /**
+   * 写一行日志。
+   * @param {'debug'|'info'|'warn'|'error'} level
+   * @param {string} scope
+   * @param {string} msg
+   * @param {Object} [data]
+   */
+  write(level, scope, msg, data) {
+    let line = `${timestamp()} ${level.toUpperCase().padEnd(5)} [${scope}] ${msg}`;
+
+    if (data && typeof data === 'object') {
+      const parts = [];
+      for (const [k, v] of Object.entries(data)) {
+        if (v === undefined) continue;
+        parts.push(`${k}=${fmtValue(v)}`);
+      }
+      if (parts.length) line += ' ' + parts.join(' ');
+    }
+    line += '\n';
+
+    if (LEVELS[level] >= this.fileLevel) this.#emit(this.appLog, line);
+    if (LEVELS[level] >= LEVELS.warn) this.#emit(this.errLog, line);
+
+    if (LEVELS[level] >= this.consoleLevel) {
+      (level === 'error' ? process.stderr : process.stdout).write(line);
+    }
+  }
+
+  /**
+   * 创建一个带 scope 的 logger。scope 会出现在每行日志的 [ ] 里，
+   * 便于 grep 单个请求（如 `[sub#3f9a1c]`）或单个模块（如 `[parser]`）。
+   *
+   * @param {string} scope
+   * @returns {{debug:Function,info:Function,warn:Function,error:Function,fail:Function}}
+   */
+  create(scope) {
+    const s = scope || 'app';
+    return {
+      debug: (msg, data) => this.write('debug', s, msg, data),
+      info: (msg, data) => this.write('info', s, msg, data),
+      warn: (msg, data) => this.write('warn', s, msg, data),
+      error: (msg, data) => this.write('error', s, msg, data),
+      /**
+       * 记录一个异常（含截断的调用栈与网络错误码）。catch 块统一用它，
+       * 避免各处手写 err.message / err.stack 时漏掉栈，也避免只写下一句
+       * 毫无信息量的 `fetch failed`。
+       */
+      fail: (msg, err, data) => {
+        const d = describeError(err);
+        return this.write('error', s, msg, {
+          err: d.reason,
+          code: d.code,
+          'net-code': d['net-code'],
+          'net-hint': d['net-hint'],
+          'net-cause': d['net-cause'],
+          'net-detail': d['net-detail'],
+          ...(data || {}),
+          stack: stackOf(err),
+        });
+      },
+    };
+  }
 }
 
-/** 类型直方图，如 { vmess: 80, ss: 60 } */
-function countBy(list, pick) {
-  const out = {};
-  for (const item of list || []) {
-    const k = String(pick(item) || 'unknown');
-    out[k] = (out[k] || 0) + 1;
-  }
-  return out;
-}
+/** 默认单例：模块加载时即按环境变量配置好 */
+const defaultLogger = new Logger();
 
 module.exports = {
-  create,
+  Logger,
+  /** 默认单例的 create（保持既有调用方 `logger.create('scope')` 不变） */
+  create: (scope) => defaultLogger.create(scope),
   reqId,
   timer,
   formatMs,

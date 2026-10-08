@@ -1,5 +1,6 @@
 {
   "id": "gemini",
+  "aliases": ["gemini", "bard", "google ai", "deepmind"],
   "name": "🤖 Gemini",
   "type": "select",
   "rules": [

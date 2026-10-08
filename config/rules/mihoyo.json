@@ -1,5 +1,6 @@
 {
   "id": "mihoyo",
+  "aliases": ["mihoyo", "hoyoverse", "米哈游"],
   "name": "⭕️💰 miHoYo",
   "type": "select",
   "proxyStrategy": "all",

@@ -1,5 +1,6 @@
 {
   "id": "bilibili",
+  "aliases": ["bilibili", "bili", "哔哩哔哩"],
   "name": "📺 哔哩哔哩",
   "type": "select",
   "proxyStrategy": "domestic",

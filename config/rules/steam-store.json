@@ -1,5 +1,6 @@
 {
   "id": "steam-store",
+  "aliases": ["steam-store", "steam商店", "steam商店/社区", "steam社区"],
   "name": "🎮 Steam 商店/社区",
   "type": "select",
   "rules": [
