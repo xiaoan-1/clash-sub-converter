@@ -41,7 +41,7 @@
       "enabled": true,
       "defaultProxy": "DIRECT"
     },
-    { "builtin": "regions", "name": "🌏 地区分组", "type": "url-test", "enabled": true },
+    { "builtin": "regions", "name": "🌏 地区分组", "type": "url-test", "enabled": false },
     {
       "ruleId": "apple",
       "name": "🍎 Apple 服务",

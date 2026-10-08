@@ -466,6 +466,9 @@ h3 {
 	margin-top: 6px;
 	line-height: 1.7;
 }
+.rg-tip {
+	color: #b08900;
+}
 .rg-row {
 	display: flex;
 	align-items: center;
