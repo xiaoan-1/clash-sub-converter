@@ -428,6 +428,20 @@ h3 {
 	background: #fffdf7;
 	border-style: dashed;
 }
+/* 「🌏 地区分组」是生成器而非真实分组，用虚线边框 + 中性色与普通分组区分 */
+.group-card-generator {
+	background: #fbfbfd;
+	border-style: dashed;
+}
+.badge-generator {
+	background: #f0f0ff;
+	color: #5b5bd6;
+	border: 1px solid #c7c7f5;
+}
+.generator-hint {
+	font-size: 12px;
+	color: #999;
+}
 .group-toggle {
 	display: flex;
 	align-items: center;

@@ -523,6 +523,18 @@ function renderPresets() {
 
 // ========== 分组配置 ==========
 
+/**
+ * 分组列表。
+ *
+ * 列表里混着两类条目，语义不同，UI 必须区分开：
+ *   真实分组    🍎 Apple 服务 / ⌨️ GitHub / 🇨🇳 中国大陆 …
+ *               输出里存在同名 proxy-group，组内是「节点」。
+ *   生成器      🌏 地区分组
+ *               输出里**没有**这个名字，它批量生成 🇭🇰 香港 / 🇹🇼 台湾 …
+ *               等一批分组，每个地区组才是真实分组。
+ * 两者长得一样时用户必然误以为「香港、台湾」是地区分组下的节点选项，
+ * 因此生成器单独渲染成一行说明 + 开关，不显示分组相关的下拉框。
+ */
 function renderGroups() {
 	var list = document.getElementById('groupsList');
 	if (!config.groups || config.groups.length === 0) {
@@ -532,6 +544,11 @@ function renderGroups() {
 	var activeNames = getActiveNames();
 	var html = '';
 	config.groups.forEach(function (g, i) {
+		if (g.builtin === 'regions') {
+			html += renderRegionGenerator(g, i);
+			return;
+		}
+
 		var mandatory = g.builtin === 'select' || g.builtin === 'auto' || g.builtin === 'fallback';
 		var enabled = mandatory ? true : g.enabled !== false;
 		var badge = mandatory
@@ -618,6 +635,51 @@ function renderGroups() {
 		'</div>';
 
 	list.innerHTML = html;
+}
+
+/**
+ * 「🌏 地区分组」渲染成生成器行。
+ * 它不是分组本身 —— 输出里没有这个名字，它批量生成香港/台湾/日本… 等地区分组。
+ * 因此这里不显示「默认出口」（地区组只装本地区节点，无出口可选），
+ * 「类型」改为对生成结果的描述（手动选择 / 自动测速），保留开关控制生成与否。
+ */
+function renderRegionGenerator(g, i) {
+	var enabled = g.enabled !== false;
+
+	return (
+		'<div class="group-card group-card-generator' +
+		(enabled ? '' : ' disabled') +
+		'">' +
+		'<span class="group-name">' +
+		esc(g.name) +
+		'</span>' +
+		'<span class="group-badge badge-generator">生成器</span>' +
+		'<span class="generator-hint">按节点名生成地区组，类型：</span>' +
+		'<select class="group-select" onchange="var g=config.groups[' +
+		i +
+		'];g.type=this.value;scheduleSave()" ' +
+		(enabled ? '' : 'disabled') +
+		'>' +
+		'<option value="url-test" ' +
+		(g.type !== 'select' ? 'selected' : '') +
+		'>自动测速</option>' +
+		'<option value="select" ' +
+		(g.type === 'select' ? 'selected' : '') +
+		'>手动选择</option>' +
+		'</select>' +
+		'<label class="group-toggle">' +
+		'<input type="checkbox" ' +
+		(enabled ? '' : 'checked') +
+		' onchange="toggleGroup(' +
+		i +
+		', !this.checked)">' +
+		'<span class="group-switch"></span>' +
+		'<span class="toggle-label">' +
+		(enabled ? '已启用' : '已禁用') +
+		'</span>' +
+		'</label>' +
+		'</div>'
+	);
 }
 
 function toggleGroup(index, enabled) {

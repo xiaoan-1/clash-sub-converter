@@ -16,6 +16,11 @@ const regionsPath = path.join(__dirname, '..', 'config', 'regions.json');
 const regionsConfig = JSON.parse(fs.readFileSync(regionsPath, 'utf8'));
 const CN_LABEL = regionsConfig.domestic.label; // '🇨🇳 中国大陆'
 
+/** 分组共用的固定候选出口（Clash 以 proxies 首项为默认出口，故默认出口排头） */
+const FIXED_OPTIONS = ['🚀 节点选择', '♻️ 自动选择', 'DIRECT'];
+/** url-test 分组的测速地址 */
+const TEST_URL = 'http://www.gstatic.com/generate_204';
+
 /**
  * 构建关键词匹配器。
  *
@@ -115,7 +120,7 @@ function filterByExcludeKeywords(proxies, keywords) {
  *
  * @param {Array} proxies - 已过滤的代理节点数组
  * @param {Object} options
- * @param {Array} options.userGroups - 用户分组配置（来自 config.json）
+ * @param {Array} options.userGroups - 用户分组配置（来自 config/default.json）
  */
 function generateProxyGroups(proxies, options = {}) {
 	const { userGroups = [] } = options;
@@ -165,7 +170,7 @@ function generateProxyGroups(proxies, options = {}) {
 	groups.push({
 		name: '♻️ 自动选择',
 		type: 'url-test',
-		url: 'http://www.gstatic.com/generate_204',
+		url: TEST_URL,
 		interval: 300,
 		tolerance: 50,
 		proxies: autoTargets,
@@ -175,18 +180,25 @@ function generateProxyGroups(proxies, options = {}) {
 	if (domesticProxies.size > 0) {
 		const domesticCfg = builtinMap.get('domestic');
 		if (!domesticCfg || domesticCfg.enabled !== false) {
+			// 类型与默认出口跟随界面配置：原实现写死 select + DIRECT，
+			// 界面上的两个下拉框选了也不生效。
+			const defProxy = domesticCfg?.defaultProxy || 'DIRECT';
+			const otherOptions = FIXED_OPTIONS.filter(o => o !== defProxy);
 			groups.push({
 				name: CN_LABEL,
-				type: 'select',
-				proxies: ['DIRECT', ...domesticProxies],
+				type: domesticCfg?.type || 'select',
+				proxies: [defProxy, ...otherOptions, ...domesticProxies],
 			});
 		}
 	}
 
 	// 4. 地区分组（可选，默认开）：按地区标签归类，只对出现过的地区建组
+	//    界面上的「🌏 地区分组」是生成器而非分组本身，其 type 决定生成出来的
+	//    每个地区组是手动选择还是自动测速；地区组只装本地区节点，故没有默认出口。
 	const regionsCfg = builtinMap.get('regions');
 	const regionsEnabled = !regionsCfg || regionsCfg.enabled !== false;
 	if (regionsEnabled) {
+		const regionType = regionsCfg?.type || 'url-test';
 		const regionMap = new Map(); // 地区标签 -> 节点名列表
 		for (const name of activeProxies) {
 			const region = getRegion(name);
@@ -196,24 +208,26 @@ function generateProxyGroups(proxies, options = {}) {
 			regionMap.get(region).push(name);
 		}
 		for (const [label, names] of regionMap) {
-			groups.push({
-				name: label,
-				type: 'url-test',
-				url: 'http://www.gstatic.com/generate_204',
-				interval: 300,
-				tolerance: 50,
-				proxies: names,
-			});
+			const group = { name: label, type: regionType, proxies: names };
+			// 测速参数只对 url-test 有意义，select 组带上会被内核忽略但也算脏数据
+			if (regionType === 'url-test') {
+				group.url = TEST_URL;
+				group.interval = 300;
+				group.tolerance = 50;
+			}
+			groups.push(group);
 		}
 		if (regionMap.size) {
-			log.debug('地区分组生成', { regions: regionMap.size, list: [...regionMap.keys()] });
+			log.debug('地区分组生成', {
+				regions: regionMap.size,
+				type: regionType,
+				list: [...regionMap.keys()],
+			});
 		}
 	}
 
 	// 5. 规则分组（可选，默认开）
 	//    每个规则分组 = defaultProxy 排头 + 其余两个固定选项(节点选择/自动选择/DIRECT 三选二) + 所有活跃节点
-	//    Clash 以 proxies 列表的第一个为默认出口
-	const fixedOptions = ['🚀 节点选择', '♻️ 自动选择', 'DIRECT'];
 	for (const rc of ruleManager.getAll()) {
 		if (rc.id === ALWAYS_ON_RULE_ID) continue;
 
@@ -224,7 +238,7 @@ function generateProxyGroups(proxies, options = {}) {
 		}
 
 		const defProxy = ruleCfg?.defaultProxy || '♻️ 自动选择';
-		const otherOptions = fixedOptions.filter(o => o !== defProxy);
+		const otherOptions = FIXED_OPTIONS.filter(o => o !== defProxy);
 
 		groups.push({
 			name: ruleCfg?.name || rc.name,
