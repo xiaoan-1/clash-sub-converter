@@ -1,0 +1,407 @@
+# ============================================================================
+# 测试用模拟订阅
+#
+# 覆盖本项目需要处理的各类边界，供 test/verify-with-mihomo.js 生成配置后
+# 交给真实 mihomo 内核校验（见 npm test）。
+#
+# 覆盖点：
+#   - 14 种协议全覆盖（vmess/ss/ssr/trojan/vless/hysteria2/hysteria/anytls/
+#     tuic/snell/socks5/http/wireguard/shadowquic）
+#   - 多地区：香港/澳门/台湾/日本/韩国/新加坡/马来西亚/泰国/越南/菲律宾/
+#     印度/印尼/阿联酋/土耳其/俄罗斯/美国/加拿大/巴西/英国/德国/法国/荷兰/
+#     瑞士/澳大利亚/南非/尼日利亚/南极洲
+#   - 国内节点：验证「🇨🇳 中国大陆」分组与 hideDomestic 过滤
+#   - 无法识别地区：验证「🌐 其他地区」兜底
+#   - 与内核内置策略重名（DIRECT / REJECT）：验证自动重命名
+#   - 名称含特殊字符（逗号 / 引号 / 百分号）：验证名称解析与转义
+#   - 广告 / 提示类节点：验证默认排除关键词
+#   - TLS / WS / gRPC / Reality / 混淆 等传输层变体
+# ============================================================================
+
+proxies:
+  # ===== 香港（4 个：ss / trojan / vmess+ws / hysteria2+混淆）=====
+  - name: '[香港] 家宽①'
+    type: ss
+    server: hk1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-hk1
+    udp: true
+  - name: '[香港] 家宽②'
+    type: trojan
+    server: hk2.example.com
+    port: 443
+    password: pass-hk2
+    sni: hk2.example.com
+    skip-cert-verify: true
+  - name: 'HK Premium 03'
+    type: vmess
+    server: hk3.example.com
+    port: 443
+    uuid: 11111111-1111-1111-1111-111111111111
+    alterId: 0
+    cipher: auto
+    tls: true
+    network: ws
+    ws-opts:
+      path: /ws
+      headers:
+        Host: hk3.example.com
+  - name: '[香港] 住宅③'
+    type: hysteria2
+    server: hk4.example.com
+    port: 8443
+    password: pass-hk4
+    sni: hk4.example.com
+    obfs: salamander
+    obfs-password: obfs-hk4
+    skip-cert-verify: true
+
+  # ===== 澳门（2 个：验证地区识别与国旗 emoji）=====
+  - name: '[澳门] 家宽①'
+    type: ss
+    server: mo1.example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: pass-mo1
+  - name: '[澳门] 家宽②'
+    type: trojan
+    server: mo2.example.com
+    port: 443
+    password: pass-mo2
+
+  # ===== 台湾（3 个：ss / hysteria2 / vless+reality）=====
+  - name: '[台湾省] 中华电信①'
+    type: ss
+    server: tw1.example.com
+    port: 8443
+    cipher: chacha20-ietf-poly1305
+    password: pass-tw1
+  - name: '[台湾省] 台北家宽②'
+    type: hysteria2
+    server: tw2.example.com
+    port: 8443
+    password: pass-tw2
+    sni: tw2.example.com
+    skip-cert-verify: true
+  - name: '[台湾省] 台中家宽③'
+    type: vless
+    server: tw3.example.com
+    port: 443
+    uuid: 22222222-2222-2222-2222-222222222222
+    tls: true
+    servername: www.apple.com
+    flow: xtls-rprx-vision
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: 6Q6lz9bdecwUVx1due4P9C9cBWLjoHw14gx2terAC3s
+      short-id: a24d68a175
+    network: tcp
+
+  # ===== 日本（3 个：vmess / trojan+grpc / ssr）=====
+  - name: '[日本] 东京①'
+    type: vmess
+    server: jp1.example.com
+    port: 443
+    uuid: 33333333-3333-3333-3333-333333333333
+    alterId: 0
+    cipher: auto
+    tls: true
+  - name: '[日本] 大阪②'
+    type: trojan
+    server: jp2.example.com
+    port: 443
+    password: pass-jp2
+    sni: jp2.example.com
+    network: grpc
+    grpc-opts:
+      grpc-service-name: jp2
+  - name: '[日本] 东京③'
+    type: ssr
+    server: jp3.example.com
+    port: 8388
+    cipher: aes-256-cfb
+    password: pass-jp3
+    protocol: auth_aes128_md5
+    obfs: tls1.2_ticket_auth
+
+  # ===== 韩国（1 个：tuic）=====
+  - name: '[韩国] 首尔①'
+    type: tuic
+    server: kr1.example.com
+    port: 443
+    uuid: 55555555-5555-5555-5555-555555555555
+    password: pass-kr1
+    sni: kr1.example.com
+    alpn: [h3]
+    congestion-controller: bbr
+    udp-relay-mode: native
+
+  # ===== 韩国（1 个：hysteria v1，补齐第 14 种协议）=====
+  - name: '[韩国] 釜山②'
+    type: hysteria
+    server: kr2.example.com
+    port: 36712
+    auth-str: pass-kr2
+    sni: kr2.example.com
+    up: 50 Mbps
+    down: 200 Mbps
+    skip-cert-verify: true
+    alpn: [h3]
+
+  # ===== 新加坡（2 个：anytls / http）=====
+  - name: '[新加坡] 原生IP①'
+    type: anytls
+    server: sg1.example.com
+    port: 443
+    password: pass-sg1
+    sni: sg1.example.com
+    skip-cert-verify: true
+  - name: '[新加坡] 中转②'
+    type: http
+    server: sg2.example.com
+    port: 8080
+    username: user-sg2
+    password: pass-sg2
+
+  # ===== 东南亚其余（各 1 个）=====
+  - name: '[马来西亚] 原生①'
+    type: ss
+    server: my1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-my1
+  - name: '[泰国] 原生①'
+    type: anytls
+    server: th1.example.com
+    port: 443
+    password: pass-th1
+  - name: '[越南] 原生①'
+    type: trojan
+    server: vn1.example.com
+    port: 443
+    password: pass-vn1
+  - name: '[菲律宾] 原生①'
+    type: ss
+    server: ph1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-ph1
+
+  # ===== 南亚 / 中东（验证「印度」与「印度尼西亚」不混淆）=====
+  - name: '[印度] 孟买①'
+    type: ss
+    server: in1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-in1
+  - name: '[印度尼西亚] 雅加达①'
+    type: ss
+    server: id1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-id1
+  - name: '[阿联酋 迪拜] ①'
+    type: trojan
+    server: ae1.example.com
+    port: 443
+    password: pass-ae1
+  - name: '[土耳其] 伊斯坦布尔①'
+    type: ss
+    server: tr1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-tr1
+
+  # ===== 欧洲 / 北美 / 大洋洲 / 非洲（各 1 个）=====
+  - name: '[俄罗斯] 莫斯科①'
+    type: ss
+    server: ru1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-ru1
+  - name: '[美国] 洛杉矶①'
+    type: ss
+    server: us1.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: pass-us1
+  - name: '[加拿大] 多伦多①'
+    type: trojan
+    server: ca1.example.com
+    port: 443
+    password: pass-ca1
+  - name: '[巴西] 圣保罗①'
+    type: ss
+    server: br1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-br1
+  - name: '[英国] 伦敦①'
+    type: trojan
+    server: uk1.example.com
+    port: 443
+    password: pass-uk1
+  - name: '[德国] 法兰克福①'
+    type: ss
+    server: de1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-de1
+  - name: '[法国] 巴黎①'
+    type: ss
+    server: fr1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-fr1
+  - name: '[荷兰] 阿姆斯特丹①'
+    type: ss
+    server: nl1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-nl1
+  - name: '[瑞士] 苏黎世①'
+    type: ss
+    server: ch1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-ch1
+  - name: '[澳大利亚] 悉尼①'
+    type: ss
+    server: au1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-au1
+  - name: '[南非] 开普敦①'
+    type: ss
+    server: za1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-za1
+  - name: '[尼日利亚] 拉各斯①'
+    type: ss
+    server: ng1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-ng1
+  - name: '[南极洲] 科考站①'
+    type: ss
+    server: aq1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-aq1
+
+  # ===== 国内（3 个：验证「中国大陆」分组与 hideDomestic 过滤）=====
+  - name: '[北京] 移动直连'
+    type: ss
+    server: cn1.example.com
+    port: 8080
+    cipher: aes-128-gcm
+    password: pass-cn1
+  - name: '[上海] 电信家宽'
+    type: trojan
+    server: cn2.example.com
+    port: 443
+    password: pass-cn2
+  - name: '[广州] 联通'
+    type: ss
+    server: cn3.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-cn3
+
+  # ===== 无法识别地区（2 个：验证「🌐 其他地区」兜底）=====
+  - name: 'Node-Alpha'
+    type: ss
+    server: x1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-x1
+  - name: 'VIP-Premium'
+    type: snell
+    server: x2.example.com
+    port: 443
+    psk: psk-x2
+    version: 4
+
+  # ===== 与内核内置策略重名（验证自动重命名为「DIRECT (节点)」）=====
+  - name: 'DIRECT'
+    type: ss
+    server: dup1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-dup1
+  - name: 'REJECT'
+    type: trojan
+    server: dup2.example.com
+    port: 443
+    password: pass-dup2
+
+  # ===== 名称含特殊字符（验证解析与转义不炸）=====
+  - name: 'US Premium, 高速'
+    type: ss
+    server: sp1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-sp1
+  - name: "it's a test"
+    type: ss
+    server: sp2.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-sp2
+  - name: '剩余流量 100% 可用'
+    type: ss
+    server: sp3.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-sp3
+
+  # ===== WireGuard / ShadowQUIC / SOCKS5（补齐协议覆盖）=====
+  - name: '[德国] WireGuard①'
+    type: wireguard
+    server: wg1.example.com
+    port: 51820
+    private-key: aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789abc=
+    public-key: ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210zyx=
+    ip: 10.0.0.2
+    mtu: 1420
+  - name: '[日本] ShadowQUIC①'
+    type: shadowquic
+    server: sq1.example.com
+    port: 443
+    password: pass-sq1
+    sni: sq1.example.com
+  - name: '[美国] SOCKS5①'
+    type: socks5
+    server: sk1.example.com
+    port: 1080
+    username: user-sk1
+    password: pass-sk1
+    udp: true
+
+  # ===== 广告 / 提示类节点（应被默认排除关键词过滤）=====
+  - name: '[官网] 剩余流量 100GB'
+    type: ss
+    server: ad1.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-ad1
+  - name: '订阅到期 2027-01-01'
+    type: ss
+    server: ad2.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-ad2
+  - name: '‼️ 使用前请更新订阅'
+    type: ss
+    server: ad3.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-ad3
+  - name: '专线 1x 倍率'
+    type: ss
+    server: ad4.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass-ad4

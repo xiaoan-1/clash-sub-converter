@@ -1,7 +1,12 @@
 logs/
-samples/
 node_modules/
 guests/
+
+# samples/ 里只提交测试用的模拟订阅（mock-sub.yaml）。
+# 真实订阅含机场地址与 token，绝不入库。
+samples/*
+!samples/mock-sub.yaml
+!samples/README.md
 
 # 本地验证用的 mihomo 内核与临时配置
 tools/

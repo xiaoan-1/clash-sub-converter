@@ -53,21 +53,28 @@ npm run status   # 状态
 > 若订阅转换正常、但导入 OpenClash 后**节点全部无法使用**，多半是客户端 DNS 问题
 > （而非本项目）—— 见 [docs/OpenClash-DNS排查.md](docs/OpenClash-DNS排查.md)。
 
-### 内核校验（可选）
+### 测试（npm test）
 
 生成的配置存在一些**只有内核才能发现的语义约束**，例如分组循环引用、
 规则指向已关闭的分组 —— 这两类问题都会让 mihomo 直接拒绝加载整份配置，
-而从 YAML 上看不出任何异常。若要验证改动，可下载内核后运行：
+而从 YAML 上看不出任何异常。因此测试直接交给真实内核判定：
 
 ```bash
-# 1. 从 https://github.com/MetaCubeX/mihomo/releases 下载
-#    mihomo-windows-amd64-compatible-*.zip 并解压到 tools/
-# 2. 生成 16 组配置组合（默认 / 地区组开关 / 规则组全关 / 空配置…）逐一校验
-npm run verify
+npm test
 ```
 
-需要 `samples/` 下存在订阅样例（`mock-sub.yaml` 或 `订阅.txt`）。
-全部通过时退出码为 0，可直接接进 CI。
+首次运行会按当前平台/架构自动下载 mihomo 到 `tools/`（约 23MB，已 gitignore），
+之后直接复用，无需任何手动准备。全部通过时退出码 0，可直接接进 CI。
+
+| 环境变量 | 说明 |
+|---|---|
+| `MIHOMO_VERSION` | 指定版本，如 `v1.19.32`（默认取 latest） |
+| `MIHOMO_FORCE_DOWNLOAD` | 设 `1` 强制重新下载 |
+| `GITHUB_TOKEN` | 带上令牌，避免匿名调用 GitHub API 的限流 |
+
+用 `samples/mock-sub.yaml`（随仓库提交，覆盖 14 种协议与各类地区/命名边界）
+跑 8 组配置组合（默认 / 地区组开关 / 规则组全关 / 空配置…）。
+若本地存在 `samples/订阅.txt`（真实订阅，不入库），会额外用它再跑一轮。
 
 ## 在 OpenClash 中使用
 
