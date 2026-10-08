@@ -245,10 +245,27 @@ function initFileZone() {
 		var file = e.dataTransfer.files[0];
 		if (file) convertFile(file);
 	});
+
+	// 拖到拖拽区之外时，浏览器默认会直接导航打开该文件（页面被替换，
+	// 用户看到的就是「导入失败」）。必须在 window 上全局阻止默认行为。
+	['dragover', 'drop'].forEach(function (type) {
+		window.addEventListener(
+			type,
+			function (e) {
+				// 拖拽区内的由上面的监听器处理，此处只阻止其余区域的默认行为
+				if (!zone.contains(e.target)) e.preventDefault();
+			},
+			false,
+		);
+	});
 }
 
 function handleFileSelect(event) {
-	var file = event.target.files[0];
+	var input = event.target;
+	var file = input.files[0];
+	// 立即清空 value：否则连续选择同一个文件时 change 事件不再触发
+	// （浏览器只在值变化时派发），表现为「第二次导入毫无反应」。
+	input.value = '';
 	if (!file) return;
 	convertFile(file);
 }
@@ -258,6 +275,17 @@ function convertFile(file) {
 	var reader = new FileReader();
 	reader.onload = function () {
 		var content = reader.result;
+		// 读取失败（权限/中断）或空文件：直接给出可读提示，不要发一个空请求
+		if (!content || !content.trim()) {
+			setStatus('status-err', '文件内容为空或读取失败');
+			return;
+		}
+		// 非 UTF-8（如 GBK）的订阅会被解码成一堆 U+FFFD，导致解析不出任何节点。
+		// 提前识别并提示，比让用户看到「未找到有效代理节点」更好排查。
+		if (content.indexOf('\uFFFD') !== -1) {
+			setStatus('status-err', '文件不是 UTF-8 编码（可能为 GBK），请另存为 UTF-8 后重试');
+			return;
+		}
 		// 文件内容直接转换
 		fetch('./api/convert', {
 			method: 'POST',
@@ -284,6 +312,13 @@ function convertFile(file) {
 			.catch(function (err) {
 				setStatus('status-err', '转换失败: ' + err.message);
 			});
+	};
+	// 文件被移动/删除/无权限时 FileReader 会失败，必须兜底，否则状态停在「正在转换...」
+	reader.onerror = function () {
+		setStatus(
+			'status-err',
+			'文件读取失败：' + (reader.error ? reader.error.message : '未知错误'),
+		);
 	};
 	reader.readAsText(file);
 }
@@ -627,13 +662,14 @@ function renderGroups() {
 		if (mandatory) {
 			html += '<span style="font-size:11px;color:#bbb">(始终启用)</span>';
 		} else {
+			// checked 直接表示「启用」：与开关视觉（绿=开）一致，避免反义混淆
 			html +=
 				'<label class="group-toggle">' +
 				'<input type="checkbox" ' +
-				(enabled ? '' : 'checked') +
+				(enabled ? 'checked' : '') +
 				' onchange="toggleGroup(' +
 				i +
-				', !this.checked)">' +
+				', this.checked)">' +
 				'<span class="group-switch"></span>' +
 				'<span class="toggle-label">' +
 				(enabled ? '已启用' : '已禁用') +
@@ -703,10 +739,10 @@ function renderRegionGenerator() {
 		'<span class="group-badge badge-generator">生成器</span>' +
 		'<label class="group-toggle">' +
 		'<input type="checkbox" ' +
-		(enabled ? '' : 'checked') +
+		(enabled ? 'checked' : '') +
 		' onchange="toggleGroup(' +
 		idx +
-		', !this.checked)">' +
+		', this.checked)">' +
 		'<span class="group-switch"></span>' +
 		'<span class="toggle-label">' +
 		(enabled ? '已启用' : '已禁用') +
