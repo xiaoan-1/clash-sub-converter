@@ -44,10 +44,10 @@ window.addEventListener('DOMContentLoaded', function () {
 // ========== 配置加载 ==========
 
 /**
- * 从服务端读回当前请求对应的配置。
+ * 从服务端读回当前访客的生效配置。
  *
- * 服务端按访问者 IP 分文件（管理员用 config.json 站点基准，其余访客各用
- * guests/<IP>.json），响应里的 scope 就是告诉页面「你正在改哪一份」。
+ * 服务端按访问者 IP 分文件：基准是 config/default.json（部署人员直接编辑），
+ * 每位访客的改动存到 guests/<IP>.json，响应里的 scope 告诉页面「你正在改哪一份」。
  * 只在页面初始化时调用一次 —— 页面不再提供「加载配置」按钮，
  * 因为改动会即时写回，不存在需要重新拉取的草稿。
  */
@@ -95,15 +95,14 @@ function loadUserConfig() {
 }
 
 /**
- * 顶栏显示当前身份：改的是站点基准（管理员）还是自己那份访客配置。
- * 部署到公网后这一步很重要 —— 否则管理员会意识不到自己改的不再是「全局」。
+ * 顶栏显示当前访客身份：改的是自己那份 guests/<IP>.json。
+ * 部署到公网后这一步很重要 —— 让访客知道改动只影响自己，
+ * 全局基准由部署人员直接编辑 config/default.json。
  */
 function renderScope(scope) {
 	var el = document.getElementById('scopeLabel');
 	if (!el || !scope) return;
-	el.textContent = scope.admin
-		? '👑 管理员 · 站点基准 · ' + scope.ip
-		: '👤 访客 · guests/' + scope.guest + '.json';
+	el.textContent = '👤 访客 · guests/' + scope.guest + '.json · ' + scope.ip;
 }
 
 // ========== 订阅拉取 UA ==========

@@ -1,21 +1,24 @@
 /**
  * 用户配置读写
  *
- * 三层结构
+ * 两层结构
  * --------
- *   config/default.json   基准，含全部内置分组定义（纳入版本控制）
- *   config.json           站点基准 —— 管理员自己的配置，也是所有访客的起点
- *                         （位于项目根目录，被 .gitignore 忽略）
- *   guests/<访客ID>.json  访客配置，仅存与「站点基准」的差异
- *                         （由 src/guests.js 按访问者 IP 选择，被 .gitignore 忽略）
+ *   config/default.json   基准 —— 含全部内置分组定义，**由部署人员直接编辑文件维护**
+ *                         （纳入版本控制）
+ *   guests/<访客ID>.json  访客配置，仅存与基准的差异
+ *                         （由 src/user/guests.js 按访问者 IP 选择，被 .gitignore 忽略）
  *
- * 生效顺序：default.json ← config.json ← guests/<ID>.json，后者覆盖前者。
+ * 生效顺序：default.json ← guests/<ID>.json，后者覆盖前者。
  *
- * readConfig(guestId) 返回合并后的完整配置，供 index.js / api.js / converter.js 共用：
- *   guestId 传 null（管理员）→ default.json + config.json
- *   guestId 传访客 ID       → 上面再叠加 guests/<ID>.json
+ * 注意**没有「站点基准 / 管理员」这一层**：基准是部署决策，直接改
+ * config/default.json 即可，不通过 Web 界面修改。所有访问者（含本机）
+ * 一视同仁，各自写自己的 guests/<IP>.json。
  *
- * 每一层都只存差异，所以「上层没写过的项」永远跟随下层：管理员改站点基准，
+ * readConfig(guestId) 返回合并后的完整配置，供 server/*.js / converter.js 共用：
+ *   guestId 传访客 ID → default.json + guests/<ID>.json
+ *   guestId 省略     → 仅 default.json（基准本身）
+ *
+ * 访客层只存差异，所以「没写过的项」永远跟随基准：部署人员改 default.json，
  * 没动过该项的访客会自动跟着变。
  *
  * 注意：订阅链接不在其中。它是每次请求的输入（`/sub?url=` 或页面上临时填写的地址），
@@ -32,7 +35,6 @@ const logger = require('../logger');
 
 const log = logger.create('config');
 
-const CONFIG_PATH = path.join(__dirname, '..', '..', 'config.json');
 const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'default.json');
 
 /**
@@ -57,32 +59,15 @@ function loadDefaultConfig() {
 }
 
 /**
- * 读取用户 config.json（不存在或损坏时返回空对象）
- */
-function loadUserConfig() {
-	try {
-		if (fs.existsSync(CONFIG_PATH)) {
-			return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-		}
-		log.debug('用户配置 config.json 不存在，使用全部默认值', { path: CONFIG_PATH });
-	} catch (err) {
-		log.fail('用户配置 config.json 解析失败，已回退为默认值', err, { path: CONFIG_PATH });
-	}
-	return {};
-}
-
-/**
  * 补全 default.json 里缺失的规则分组。
  *
  * 分组有两个各自硬编码的来源：
  *   config/rules/*.json —— proxy-groups 由它推导，决定 Clash 输出里有哪些分组
  *   config/default.json —— 前端分组列表由它推导，决定用户能配置哪些分组
- * 新增一个规则文件不会自动出现在 default.json 里。于是经 POST /api/rules
- * 新增规则后，Clash 输出多出了该分组，配置界面却看不到它：用户无法禁用、
- * 无法改默认出口、无法改类型，保存时还会被 saveConfig 静默跳过
- * （user-config.js: `const dg = defGroupMap[key]; if (!dg) return;`）。
+ * 新增一个规则文件不会自动出现在 default.json 里。以规则目录为准补全缺失项，
+ * 避免「Clash 输出多出分组、配置界面却看不到」。
  *
- * 以规则目录为准补全缺失项，默认值与 proxy-groups.js 的分支保持一致：
+ * 默认值与 proxy-groups.js 的分支保持一致：
  *   name      = ruleCfg?.name || rc.name
  *   type      = ruleCfg?.type || rc.type || 'select'
  *   defaultProxy = ruleCfg?.defaultProxy || '♻️ 自动选择'
@@ -123,27 +108,13 @@ function effectiveGroups(def) {
 }
 
 /**
- * 站点基准 —— default.json ← config.json 合并后的结果。
- * 等价于「没有访客时 readConfig() 的返回值」，是访客层计算差异的参照物。
- * @param {Object} [def] 已加载的 default.json（避免同一次请求里重复读盘）
+ * 基准配置（default.json 本身，附带补全后的分组清单）。
+ *
+ * 这是唯一的基准来源 —— 没有「站点基准 / 管理员」中间层，
+ * 部署人员直接编辑 config/default.json 即为全局生效的配置。
+ * 访客层与 saveConfig 的差异计算都以它为参照物。
  */
-function siteConfig(def = loadDefaultConfig()) {
-	const user = loadUserConfig();
-
-	return {
-		nodeFilters: { ...(def.nodeFilters || {}), ...(user.nodeFilters || {}) },
-		excludeKeywords:
-			user.excludeKeywords !== undefined ? user.excludeKeywords : def.excludeKeywords || [],
-		fetch: { ...(def.fetch || {}), ...(user.fetch || {}) },
-		groupOverrides: user.groupOverrides || {},
-	};
-}
-
-/**
- * default.json 本身作为基准（附带补全后的分组清单）。
- * 供管理员配置 config.json 计算差异用 —— 它的下层只有 default.json。
- */
-function defaultBaseline() {
+function baseline() {
 	const def = loadDefaultConfig();
 	return {
 		nodeFilters: def.nodeFilters || {},
@@ -153,7 +124,7 @@ function defaultBaseline() {
 	};
 }
 
-/** 按 key 逐字段合并两份 groupOverrides，访客层覆盖站点层 */
+/** 按 key 逐字段合并两份 groupOverrides，访客层覆盖基准层 */
 function mergeGroupOverrides(base = {}, over = {}) {
 	const out = {};
 	for (const key of Object.keys(base)) out[key] = { ...base[key] };
@@ -163,28 +134,34 @@ function mergeGroupOverrides(base = {}, over = {}) {
 
 /**
  * 读取合并后的完整配置
- * @param {string|null} [guestId] 访客 ID；null / 省略表示管理员（不叠加访客层）
+ * @param {string|null} [guestId] 访客 ID；省略 / null 时只返回基准（default.json）
  */
 function readConfig(guestId) {
-	// default.json 只读一次：siteConfig() 与下面的 effectiveGroups() 都要用，
+	// default.json 只读一次：baseline() 与下面的 effectiveGroups() 都要用，
 	// 而 loadDefaultConfig() 没有缓存，读两遍等于每个请求多解析一次 JSON。
 	const def = loadDefaultConfig();
-	const site = siteConfig(def);
 	// 访客文件不存在时 readGuestConfig 直接返回 {} —— 读路径不落盘，
 	// 即「打开配置页只看不改」不会创建 guests/<ID>.json。
 	const guest = guestId ? guests.readGuestConfig(guestId) : null;
 
+	const base = {
+		nodeFilters: def.nodeFilters || {},
+		excludeKeywords: def.excludeKeywords || [],
+		fetch: def.fetch || {},
+		groupOverrides: {},
+	};
+
 	const effective = guest
 		? {
-				nodeFilters: { ...site.nodeFilters, ...(guest.nodeFilters || {}) },
+				nodeFilters: { ...base.nodeFilters, ...(guest.nodeFilters || {}) },
 				excludeKeywords:
 					guest.excludeKeywords !== undefined
 						? guest.excludeKeywords
-						: site.excludeKeywords,
-				fetch: { ...site.fetch, ...(guest.fetch || {}) },
-				groupOverrides: mergeGroupOverrides(site.groupOverrides, guest.groupOverrides),
+						: base.excludeKeywords,
+				fetch: { ...base.fetch, ...(guest.fetch || {}) },
+				groupOverrides: mergeGroupOverrides(base.groupOverrides, guest.groupOverrides),
 			}
-		: site;
+		: base;
 
 	// 基准固定用 default.json 的分组定义（不是已合并的结果）：
 	// 若拿「已带覆盖的分组」当基准，用户把某项改回默认值时算不出差异，
@@ -208,7 +185,7 @@ function readConfig(guestId) {
 
 	// readConfig 每次请求都会被调用多次，只在 debug 级记录，便于核对「界面改了但没生效」
 	log.debug('配置已加载', {
-		scope: guestId || '站点基准（管理员）',
+		scope: guestId || '基准（default.json）',
 		guestOverrideKeys: guest ? Object.keys(guest) : undefined,
 		groups: groups.length,
 		disabled: groups.filter(g => g.enabled === false).map(g => g.ruleId || g.builtin),
@@ -229,7 +206,7 @@ function sameJson(a, b) {
 
 /**
  * 只保留与基准不同的节点过滤开关。
- * 逐字段存差异而不是整对象覆盖，这样访客没碰过的那个开关仍会跟随站点基准。
+ * 逐字段存差异而不是整对象覆盖，这样访客没碰过的那个开关仍会跟随基准。
  */
 function diffNodeFilters(base = {}, next = {}) {
 	const out = {};
@@ -269,24 +246,20 @@ function diffGroups(baseGroups, newGroups) {
 }
 
 /**
- * 保存用户配置 —— 仅存与基准的差异
+ * 保存访客配置 —— 仅存与基准（default.json）的差异
  *
- * 写入目标由 guestId 决定：
- *   不传（管理员）→ config.json，基准是 default.json
- *   传（访客）    → guests/<访客ID>.json，基准是「站点生效配置」
- *
- * 访客的基准必须是站点生效配置而不是 default.json：否则访客会把管理员配置
- * 原样复制一份存起来，之后管理员改站点基准，这些访客再也不会跟着变。
+ * 写入 guests/<访客ID>.json。基准是 config/default.json —— 部署人员直接编辑
+ * 它来改全局配置，Web 界面不提供修改基准的途径。
  *
  * @param {Object} newConfig 界面回传的完整配置
- * @param {string|null} [guestId]
+ * @param {string} guestId   访客 ID（必填；所有访问者含本机都是访客）
  * @returns {Object} 实际写入的配置
  */
 function saveConfig(newConfig, guestId) {
-	// 基准 = 「本文件所在层的下一层」合并后的结果
-	const base = guestId
-		? readConfig(null) // 访客的下层 = 站点生效配置
-		: defaultBaseline(); // 管理员的下层 = default.json
+	if (!guestId) {
+		throw new Error('缺少访客 ID：基准配置请直接编辑 config/default.json');
+	}
+	const base = baseline();
 
 	// ---- 节点过滤 ----
 	const nodeFilters = diffNodeFilters(base.nodeFilters, newConfig.nodeFilters || {});
@@ -307,25 +280,19 @@ function saveConfig(newConfig, guestId) {
 		// 已不存在的键交给 default.json 兜底，避免把旧值一直带在文件里
 	}
 
-	// 只写有差异的字段：文件里没出现的项 = 完全继承下层，将来会跟着下层一起变
+	// 只写有差异的字段：文件里没出现的项 = 完全继承基准，将来会跟着基准一起变
 	const out = {};
 	if (Object.keys(nodeFilters).length > 0) out.nodeFilters = nodeFilters;
 	if (excludeKeywords !== undefined) out.excludeKeywords = excludeKeywords;
 	if (Object.keys(groupOverrides).length > 0) out.groupOverrides = groupOverrides;
 	if (Object.keys(fetchOv).length > 0) out.fetch = fetchOv;
 
-	let target;
-	if (guestId) {
-		target = guests.writeGuestConfig(guestId, out);
-	} else {
-		target = CONFIG_PATH;
-		fs.writeFileSync(CONFIG_PATH, JSON.stringify(out, null, 2), 'utf-8');
-	}
+	const target = guests.writeGuestConfig(guestId, out);
 
-	log.info(guestId ? '访客配置已保存' : '站点配置已保存', {
+	log.info('访客配置已保存', {
 		path: target,
-		guest: guestId || undefined,
-		// 空对象是正常结果：代表该访客当前完全跟随站点基准
+		guest: guestId,
+		// 空对象是正常结果：代表该访客当前完全跟随基准
 		diffKeys: Object.keys(out),
 		nodeFilters: out.nodeFilters,
 		excludeKeywords: out.excludeKeywords ? out.excludeKeywords.length : '(继承)',
@@ -337,11 +304,9 @@ function saveConfig(newConfig, guestId) {
 }
 
 module.exports = {
-	CONFIG_PATH,
 	DEFAULT_CONFIG_PATH,
 	loadDefaultConfig,
-	loadUserConfig,
-	siteConfig,
+	baseline,
 	readConfig,
 	saveConfig,
 };

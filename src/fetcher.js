@@ -7,6 +7,7 @@
  * 而作废订阅地址。
  */
 const { resolveUserAgent, FALLBACK_UA } = require('./user/user-agents');
+const { validateSubscriptionUrl } = require('./utils/url-guard');
 const logger = require('./logger');
 const {
 	readSubHeader,
@@ -112,6 +113,18 @@ async function requestSubscription(url, options = {}) {
 	const host = logger.hostOf(url);
 	const t = logger.timer();
 
+	// SSRF 防护：订阅地址是外部可控输入，先校验协议与目标地址，
+	// 拒绝 file:// 等协议与内网 / 回环 / 云元数据地址。
+	const guard = validateSubscriptionUrl(url);
+	if (!guard.ok) {
+		log.warn('订阅地址未通过安全校验，已拒绝', { url: safe, host, reason: guard.reason });
+		const e = new Error(guard.reason);
+		e.hint = guard.reason;
+		e.stage = 'guard';
+		e.failReason = guard.reason;
+		throw e;
+	}
+
 	// 「用什么去订阅的」：UA 是机场风控的第一道门槛，UV 报 403 时先看这行
 	log.debug('发起订阅请求', {
 		method: 'GET',
@@ -126,7 +139,7 @@ async function requestSubscription(url, options = {}) {
 
 	let response;
 	try {
-		response = await fetch(url, {
+		response = await fetch(guard.url, {
 			headers: { 'User-Agent': ua, Accept: '*/*' },
 			signal: AbortSignal.timeout(SUBSCRIBE_TIMEOUT_MS),
 		});

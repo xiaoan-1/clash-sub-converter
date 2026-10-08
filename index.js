@@ -58,17 +58,28 @@ function getLocalIPs() {
 }
 
 // 中间件
-app.use(express.json());
+// 订阅正文动辄几百 KB（YAML 格式常达 200KB~1MB），/api/convert-file 与
+// /api/convert 的 rawContent 都要收全文。默认 100kb 会让大订阅直接 413，
+// 且前端只看到「request entity too large」不知所以然，因此放宽到 10MB。
+const BODY_LIMIT = process.env.BODY_LIMIT || '10mb';
+app.use(express.json({ limit: BODY_LIMIT }));
 
 // 所有路由都注册在这个 router 上，最后整体挂到 BASE_PATH。
 // 这样内部路径（/cfg、/api/...、/sub）无论部署在哪一级都不用改。
 const router = express.Router();
 
 router.use(express.static(path.join(__dirname, 'web')));
-router.use((req, res, next) => {
+
+/**
+ * CORS：只给只读的 /sub 开，且不带凭据。
+ *
+ * /sub 是 GET、无副作用，浏览器端的第三方工具（如订阅管理面板）读它时需要
+ * 跨域，并需要能读到 subscription-userinfo 等自定义响应头，故显式暴露。
+ * 写接口（/api/config、/api/rules）不开 CORS —— 它们同源调用即可，
+ * 开着反而给 CSRF 开了门（`Allow-Origin: *` 会让任意站点读到响应）。
+ */
+router.use('/sub', (req, res, next) => {
 	res.header('Access-Control-Allow-Origin', '*');
-	// 订阅元信息走自定义响应头（subscription-userinfo 等），
-	// 浏览器调用时需要显式暴露才能读到。
 	res.header(
 		'Access-Control-Expose-Headers',
 		'subscription-userinfo, profile-web-page-url, profile-update-interval, Content-Disposition',
@@ -76,6 +87,31 @@ router.use((req, res, next) => {
 	if (req.method === 'OPTIONS') return res.sendStatus(200);
 	next();
 });
+
+/**
+ * 写请求的来源校验（轻量 CSRF 防护）。
+ *
+ * 浏览器发起跨域 POST/PUT/DELETE 时**一定**带 Origin 头，且不受脚本控制；
+ * 因此「Origin 存在但与本站 host 不符」即可判定为跨站写请求，直接拒绝。
+ * 无 Origin（curl / OpenClash / 服务端调用）不拦 —— 它们本就不是浏览器，
+ * 不存在被第三方页面诱导的问题。
+ */
+function guardWriteOrigin(req, res, next) {
+	if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+	const origin = req.get('origin');
+	if (!origin) return next();
+	let host;
+	try {
+		host = new URL(origin).host;
+	} catch {
+		return res.status(403).json({ error: '来源非法（Origin 无法解析）' });
+	}
+	if (host !== req.get('host')) {
+		return res.status(403).json({ error: '跨站写入被拒绝（Origin 与本站不符）' });
+	}
+	next();
+}
+router.use(guardWriteOrigin);
 
 // ===================== 路由 =====================
 
@@ -112,6 +148,30 @@ if (BASE_PATH) {
 // 根路径部署时为 '/'，子路径部署时为 '/clash'
 app.use(BASE_PATH || '/', router);
 
+/**
+ * 统一错误处理（必须放在所有路由之后，且四个参数缺一不可）。
+ *
+ * 主要处理 express.json 抛出的解析类错误 —— 默认会返回 HTML 错误页，
+ * 调用方（尤其前端 fetch）拿到的不是 JSON，无法展示有意义的信息。
+ */
+app.use((err, req, res, next) => {
+	if (res.headersSent) return next(err);
+	if (err.type === 'entity.too.large') {
+		return res.status(413).json({
+			error: `请求体过大（上限 ${BODY_LIMIT}）`,
+			hint: '订阅正文超出上限，请改用「订阅链接」而非直接粘贴内容，或调大 BODY_LIMIT 环境变量',
+		});
+	}
+	if (err.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+		return res.status(400).json({ error: '请求体不是合法 JSON' });
+	}
+	logger.create('app').fail('未处理的请求错误', err, {
+		method: req.method,
+		path: req.path,
+	});
+	res.status(500).json({ error: '服务器内部错误' });
+});
+
 // 启动服务
 app.listen(PORT, HOST, () => {
 	// 部署子路径时把前缀一并打出来，免得照着终端里的地址去填 OpenClash 却是 404
@@ -119,7 +179,6 @@ app.listen(PORT, HOST, () => {
 	const ips = getLocalIPs();
 	// 示例地址用第一张网卡的 IP；仅监听指定地址时就用该地址
 	const base = `http://${HOST === '0.0.0.0' ? ips[0] || '127.0.0.1' : HOST}:${PORT}${p}`;
-	const adminList = guests.adminIps(TRUST_PROXY);
 	const guestCount = guests.listGuestIds().length;
 
 	console.log(`\n🚀 Clash 订阅转换器已启动（端口 ${PORT}）\n`);
@@ -135,16 +194,14 @@ app.listen(PORT, HOST, () => {
 			: `   监听 ${HOST}:${PORT}${p}（未绑 0.0.0.0，局域网其他设备访问不到）`,
 	);
 
-	// 访客隔离最容易出事的地方是「以为在隔离，其实全用同一份配置」，所以启动时
-	// 把判定依据（管理员 IP 列表 / 是否启用反代）直接打在控制台上
-	console.log(
-		`   访客 ${guestCount} 个文件 · 管理员 ${adminList.join(', ') || '(空，请在 ADMIN_IPS 里配置)'} · 反向代理 ${TRUST_PROXY ? '已启用' : '未启用'}`,
-	);
+	// 所有访问者（含本机）都各写自己的访客配置；基准靠改 config/default.json
+	console.log(`   访客 ${guestCount} 个文件 · 反向代理 ${TRUST_PROXY ? '已启用' : '未启用'}`);
 	if (!TRUST_PROXY) {
 		console.log(
 			`   ⚠ 未设 TRUST_PROXY：在 Nginx / Caddy 后面时 req.ip 恒为 127.0.0.1，所有访客会被当成同一个人`,
 		);
 	}
+	console.log(`   基准配置    config/default.json（由部署人员直接编辑）`);
 	console.log('');
 
 	bootLog.info('服务已启动', {
@@ -159,7 +216,6 @@ app.listen(PORT, HOST, () => {
 		'file-level': logger.level.fileName,
 		'console-level': logger.level.consoleName,
 		'trust-proxy': TRUST_PROXY,
-		'admin-ips': adminList,
 		'guest-dir': guests.GUEST_DIR,
 		guests: guestCount,
 	});

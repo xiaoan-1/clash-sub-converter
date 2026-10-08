@@ -90,7 +90,17 @@ router.get('/', async (req, res) => {
 		for (let i = 0; i < urls.length; i++) {
 			const u = urls[i];
 			try {
-				const decodedUrl = u.startsWith('http') ? u : decodeURIComponent(u);
+				// 订阅地址可能被调用方 encodeURIComponent 过，这里解回原文。
+				// 但畸形编码（如 %E4%B8%AD 截断）会让 decodeURIComponent 抛 URIError，
+				// 直接冒泡到外层 catch 会变成 500 —— 对用户输入问题应回退原串。
+				let decodedUrl = u;
+				if (!u.startsWith('http')) {
+					try {
+						decodedUrl = decodeURIComponent(u);
+					} catch {
+						decodedUrl = u;
+					}
+				}
 				log.debug(`拉取订阅 ${i + 1}/${urls.length}`, { url: logger.safeUrl(decodedUrl) });
 				const result = await requestSubscription(decodedUrl, fetchOpts);
 				allContent += (allContent ? '\n' : '') + result.text;

@@ -4,7 +4,6 @@ const { readConfig, saveConfig } = require('../src/user/user-config');
 const { listPresets, resolveUserAgent, sanitizeUa } = require('../src/user/user-agents');
 const { parseSubscription, parseSubscriptionList, extractClashDns } = require('../src/parser');
 const { isDomestic, CN_LABEL } = require('../src/proxy-groups');
-const { ruleManager } = require('../src/rule-manager');
 const { convertToClash } = require('../src/converter');
 const guests = require('../src/user/guests');
 const logger = require('../src/logger');
@@ -41,6 +40,11 @@ function uaOptions(req, override) {
  * 其余才是服务端故障 → 500。
  */
 function sendConvertError(res, err, tag) {
+	// 订阅地址未通过安全校验（SSRF 防护）：属用户输入问题 → 400
+	if (err.stage === 'guard') {
+		log.warn(`${tag} 订阅地址未通过安全校验`, { err: err.message, hint: err.hint });
+		return res.status(400).json({ error: err.message, hint: err.hint });
+	}
 	if (err.code === 'ALL_PROXIES_FILTERED') {
 		log.warn(`${tag} 全部节点被过滤条件排除`, {
 			err: err.message,
@@ -87,8 +91,7 @@ router.post('/parse', async (req, res) => {
 		log.info('POST /api/parse 完成', { nodes: nodes.length });
 		res.json({ nodes, total: nodes.length });
 	} catch (err) {
-		log.fail('POST /api/parse 失败', err);
-		res.status(500).json({ error: '解析失败: ' + err.message });
+		sendConvertError(res, err, '[api/parse]');
 	}
 });
 
@@ -296,19 +299,22 @@ router.get('/user-agents', (req, res) => {
 
 /**
  * GET /api/config
- * 返回当前请求对应的配置（管理员 = 站点基准，访客 = 站点基准 + 自己那份差异）；
+ * 返回当前访客的生效配置（基准 default.json + 该访客自己的差异）；
  * scope 用于让页面显示「你正在改的是哪一份配置」。
  */
 router.get('/config', (req, res) => {
 	const scope = guests.scopeOf(req);
 	const config = readConfig(scope.guest);
-	log.debug('GET /api/config', { ip: scope.ip, scope: scope.guest || '站点基准' });
+	log.debug('GET /api/config', { ip: scope.ip, guest: scope.guest });
+	// scope 与 config 平级返回，不展开进 config：
+	// 否则前端回传时会把 scope 当成配置字段一起存进配置文件。
 	res.json({ ...config, scope });
 });
 
 /**
  * POST /api/config
- * 保存配置 —— 仅存储与下层基准的差异（管理员写 config.json，访客写 guests/<IP>.json）
+ * 保存访客配置 —— 仅存与基准（config/default.json）的差异，写入 guests/<IP>.json。
+ * 基准由部署人员直接编辑 config/default.json 维护，Web 界面不改基准。
  */
 router.post('/config', (req, res) => {
 	const scope = guests.scopeOf(req);
@@ -318,16 +324,20 @@ router.post('/config', (req, res) => {
 			log.warn('POST /api/config 配置格式无效', {
 				hasBody: !!newConfig,
 				keys: newConfig ? Object.keys(newConfig) : null,
-				scope: scope.guest || '站点基准',
+				guest: scope.guest,
 			});
 			return res.status(400).json({ error: '无效的配置格式' });
 		}
 
-		const saved = saveConfig(newConfig, scope.guest);
+		// GET 时把 scope 与 config 平级返回，前端若原样回传会带上它 ——
+		// 这里显式剔除，避免把请求身份信息当成配置持久化。
+		const { scope: _ignored, ...clean } = newConfig;
+
+		const saved = saveConfig(clean, scope.guest);
 		log.info('POST /api/config 完成', {
-			groups: newConfig.groups.length,
+			groups: clean.groups.length,
 			ip: scope.ip,
-			scope: scope.guest || '站点基准',
+			guest: scope.guest,
 		});
 		res.json({ success: true, config: saved, scope });
 	} catch (err) {
@@ -336,63 +346,7 @@ router.post('/config', (req, res) => {
 	}
 });
 
-// ===================== 规则管理 =====================
-
-/**
- * GET /api/rules
- * 获取所有规则配置
- */
-router.get('/rules', (req, res) => {
-	res.json(ruleManager.getAll());
-});
-
-/**
- * GET /api/rules/:id
- * 获取单个规则配置
- */
-router.get('/rules/:id', (req, res) => {
-	const rule = ruleManager.getById(req.params.id);
-	if (!rule) return res.status(404).json({ error: '规则不存在' });
-	res.json(rule);
-});
-
-/**
- * POST /api/rules
- * 添加新规则
- */
-router.post('/rules', (req, res) => {
-	try {
-		const rule = ruleManager.add(req.body);
-		res.json(rule);
-	} catch (err) {
-		res.status(400).json({ error: err.message });
-	}
-});
-
-/**
- * PUT /api/rules/:id
- * 更新规则
- */
-router.put('/rules/:id', (req, res) => {
-	try {
-		const rule = ruleManager.update(req.params.id, req.body);
-		res.json(rule);
-	} catch (err) {
-		res.status(400).json({ error: err.message });
-	}
-});
-
-/**
- * DELETE /api/rules/:id
- * 删除规则
- */
-router.delete('/rules/:id', (req, res) => {
-	try {
-		ruleManager.remove(req.params.id);
-		res.json({ success: true });
-	} catch (err) {
-		res.status(400).json({ error: err.message });
-	}
-});
+// 规则（config/rules/*.json）属基准配置，由部署人员直接编辑文件维护，
+// 不提供 HTTP 写接口；需要规则列表时前端从 /api/config 的 groups 获取。
 
 module.exports = router;

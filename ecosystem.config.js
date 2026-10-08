@@ -22,13 +22,9 @@ module.exports = {
 				LOG_LEVEL: 'debug',
 				LOG_CONSOLE_LEVEL: 'info',
 
-				// ---- 访客配置（按访问者 IP 隔离，见 src/guests.js）----
-				// 管理员 IP：这些 IP 访问时用的仍然是 config.json（站点基准），其余访客
-				// 各用 guests/<IP>.json。多个用逗号分隔。
-				// ⚠️ 已开启反代，这里必须填你**访问时对外暴露的 IP**（如家里宽带/公司的
-				//    公网 IP，或固定 VPN / 内网 IP），填 127.0.0.1 没用 —— req.ip 拿到的是
-				//    nginx 透传的真实客户端地址，不是回环。
-				ADMIN_IPS: '',
+				// ---- 访客配置（按访问者 IP 隔离，见 src/user/guests.js）----
+				// 所有访问者（含本机）一视同仁，各写自己的 guests/<IP>.json；
+				// 全局基准由部署人员直接编辑 config/default.json 维护。
 				// 反向代理：部署在 Nginx / Caddy 后面时必须设置，否则 req.ip 恒为
 				// 127.0.0.1，所有访客会被判定成同一个人。
 				//   未设置/0/false 关闭       1/true 信任最近一跳（都按数字 1 处理）
@@ -36,7 +32,6 @@ module.exports = {
 				// 服务器上与 nginx 同机 → 'loopback'（nginx 从 127.0.0.1 连进来）。
 				// ⚠️ 不要写布尔 true —— 那在 Express 里是「信任所有跳」，req.ip 会取
 				//    X-Forwarded-For 的最左值，等于把客户端可伪造的字段当成真实来源。
-				// ⚠️ 开启后回环地址不再算管理员，ADMIN_IPS 留空则没人能改站点基准。
 				// ⚠️ 若 app 在 Docker 里，'loopback' 不适用（那一跳是 172.x 网桥地址），
 				//    改成对应网段如 '172.17.0.0/16' 或直接 '1'。
 				TRUST_PROXY: 'loopback',

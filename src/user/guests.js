@@ -1,33 +1,28 @@
 /**
  * 访客配置目录
  *
- * 为什么需要
- * ----------
- * 原先全站共用一份 config.json：部署到公网后，任何访问者改动配置都会影响所有人。
- * 现在按「访问者 IP」拆开，一个访客一个文件：
+ * 设计
+ * ----
+ * 配置分两层，**没有「站点基准 / 管理员」这一层**：
  *
- *   config/default.json   基准（纳入版本控制，所有内置分组定义）
- *   config.json           站点基准 —— 管理员自己的配置，也是所有访客的起点
- *   guests/<访客ID>.json  访客配置 —— 只存与站点基准的差异（gitignore）
+ *   config/default.json   基准 —— 由**部署人员直接编辑文件**维护
+ *                         （纳入版本控制，含全部内置分组定义）
+ *   guests/<访客ID>.json  访客配置 —— 仅存与基准的差异，由 Web 界面写入
  *
- * 生效顺序：default.json ← config.json ← guests/<ID>.json
+ * 生效顺序：default.json ← guests/<ID>.json，后者覆盖前者。
  *
- * 谁用哪一份
- * ----------
- *   管理员（ADMIN_IPS 里列出的 IP；未启用反代时还包括回环地址）→ config.json
- *   其他所有访问者                                              → guests/<ID>.json
+ * 所有访问者（**包括本机 127.0.0.1**）一视同仁，各自写自己的
+ * guests/<IP>.json。想改全局基准请直接编辑 config/default.json ——
+ * 基准是部署决策，不通过 Web 界面修改。
  *
  * 访客文件**只在保存配置时创建**（POST /api/config），读路径（GET /api/config、
  * GET /sub）不落盘 —— 否则任何人打开一次配置页、或爬虫扫一遍 /sub，guests/ 里
  * 就会多出一个文件；开着反向代理时连 X-Forwarded-For 都能随便编，可以无限刷。
- * 不存在的文件一律当作「空的差异」，所以首次访问看到的仍然是站点基准。
+ * 不存在的文件一律当作「空的差异」，所以首次访问看到的仍然是基准。
  *
- * 创建时写入的是**空的差异**（`{}`），因为访客层本来就叠加在站点基准之上 ——
- * 空的差异 = 完全继承站点基准，效果与「复制一份 config.json」完全一致。
- *
- * 这里故意不把 config.json 原样拷贝过去：拷贝会把访客锁死在创建那一刻的值上，
- * 以后管理员改站点基准，这些访客再也不会跟着变。要的是「一致的起点 + 各改各的」，
- * 而不是「各拿一份会过期的快照」。
+ * 创建时写入的是**空的差异**（`{}`），因为访客层本来就叠加在基准之上 ——
+ * 空的差异 = 完全继承基准。这里故意不把 default.json 原样拷贝过去：
+ * 拷贝会把访客锁死在创建那一刻的值上，以后部署人员改基准，这些访客再也不会跟着变。
  *
  * 三点必须知道的限制
  * ------------------
@@ -92,35 +87,6 @@ function guestFile(guestId) {
 	return file;
 }
 
-// ===================== 管理员判定 =====================
-
-/** 未启用反代时，回环地址就是管理员本机 */
-const LOOPBACK_IPS = ['127.0.0.1', '::1'];
-
-/** 环境变量 ADMIN_IPS 指定的管理员 IP（逗号 / 分号 / 空格分隔） */
-const ADMIN_IPS = String(process.env.ADMIN_IPS || '')
-	.split(/[,;\s]+/)
-	.map(normalizeIp)
-	.filter(Boolean);
-
-/**
- * 当前生效的管理员 IP 列表。
- *
- * 回环地址只在**未启用反代**时算管理员：一旦部署在 Nginx 后面而没有正确设置
- * TRUST_PROXY，所有请求的 req.ip 都会是 127.0.0.1，此时再把回环地址当管理员
- * 就等于「所有访客共用管理员配置」——隔离会静默失效。所以开启反代后必须用
- * ADMIN_IPS 显式声明管理员的真实 IP。
- */
-function adminIps(trustProxy) {
-	return trustProxy ? [...ADMIN_IPS] : [...new Set([...LOOPBACK_IPS, ...ADMIN_IPS])];
-}
-
-function isAdminIp(ip, trustProxy) {
-	const norm = normalizeIp(ip);
-	if (!norm) return false;
-	return adminIps(trustProxy).includes(norm);
-}
-
 // ===================== 请求 → 访客 =====================
 
 /**
@@ -135,7 +101,7 @@ function isAdminIp(ip, trustProxy) {
  * ⚠️ '1' 和 'true' 都必须映射成**数字** 1，绝不能返回布尔 true。
  *    express 的 trust proxy = true 是「信任**所有**跳」：req.ip 会取
  *    X-Forwarded-For 的**最左**值，而那正是客户端自己写进去的字段 ——
- *    任何访客都能填一个 ADMIN_IPS 里的地址，把自己变成管理员去改站点基准。
+ *    任何人都能伪造 IP，把自己伪装成另一个访客（或反过来）。
  *    数字 1 才是「信任最近一跳」，从右往左取第一个不可信地址。
  *    已实测（X-Forwarded-For: '203.0.113.9, 9.9.9.9'）：
  *      trust proxy = true       → 203.0.113.9   ❌ 伪造成功
@@ -157,23 +123,20 @@ function clientIp(req) {
 }
 
 /**
- * 本次请求应该用哪份配置。
- * @returns {string|null} 访客 ID；null 表示管理员，使用站点基准 config.json
+ * 本次请求用哪份访客配置。
  *
- * 取不到 IP 时也当作访客（归入 'unknown'），而不是放行到站点基准 ——
- * 万一出现异常情况，宁可让配置之间互相隔离，也不要暴露管理员的配置。
+ * 所有访问者一视同仁（**含本机 127.0.0.1**）：一律按客户端 IP 归入
+ * guests/<IP>.json。想改全局基准请直接编辑 config/default.json。
+ *
+ * @returns {string} 访客 ID（取不到 IP 时归入 'unknown'，不特殊放行）
  */
 function guestIdFrom(req) {
-	const trustProxy = !!(req.app && req.app.get('trust proxy'));
-	const ip = clientIp(req);
-	if (ip && isAdminIp(ip, trustProxy)) return null;
-	return normalizeGuestId(ip);
+	return normalizeGuestId(clientIp(req));
 }
 
 /** 供接口回显 / 日志用：这次请求的身份 */
 function scopeOf(req) {
-	const guest = guestIdFrom(req);
-	return { ip: clientIp(req) || '(未知)', guest, admin: guest === null };
+	return { ip: clientIp(req) || '(未知)', guest: guestIdFrom(req) };
 }
 
 // ===================== 读写 =====================
@@ -216,17 +179,17 @@ function createGuestConfig(guestId) {
 		);
 	}
 
-	// 空的差异 = 完全继承站点基准。不做 config.json 拷贝，理由见文件头注释。
+	// 空的差异 = 完全继承基准。不做 default.json 拷贝，理由见文件头注释。
 	fs.writeFileSync(file, '{}\n', 'utf-8');
 	known.add(id);
-	log.info('新建访客配置（继承站点基准）', { guest: id, path: file, total: total + 1 });
+	log.info('新建访客配置（继承基准）', { guest: id, path: file, total: total + 1 });
 	return true;
 }
 
 /**
- * 读取访客配置；文件不存在或损坏时返回空对象（即完全继承站点基准）。
+ * 读取访客配置；文件不存在或损坏时返回空对象（即完全继承基准）。
  *
- * 读路径不创建文件：首次访问的访客看到的就是站点基准，只有他真的改了配置
+ * 读路径不创建文件：首次访问的访客看到的就是基准，只有他真的改了配置
  * （POST /api/config）才会生成 guests/<ID>.json。
  */
 function readGuestConfig(guestId) {
@@ -240,7 +203,7 @@ function readGuestConfig(guestId) {
 			known.delete(id);
 			return {};
 		}
-		log.fail('访客配置解析失败，已回退为继承站点基准', err, { guest: id });
+		log.fail('访客配置解析失败，已回退为继承基准', err, { guest: id });
 		return {};
 	}
 }
@@ -273,8 +236,6 @@ module.exports = {
 	normalizeIp,
 	normalizeGuestId,
 	guestFile,
-	adminIps,
-	isAdminIp,
 	parseTrustProxy,
 	clientIp,
 	guestIdFrom,
