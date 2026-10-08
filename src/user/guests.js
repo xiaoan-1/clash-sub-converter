@@ -41,11 +41,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const logger = require('./logger');
+const logger = require('../logger');
 
 const log = logger.create('guests');
 
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(__dirname, '..', '..');
 /** 访客配置目录 —— 一个访客一个文件 */
 const GUEST_DIR = path.join(ROOT, 'guests');
 

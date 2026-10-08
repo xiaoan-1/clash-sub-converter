@@ -136,7 +136,15 @@ rm guests/1.2.3.4.json        # 重置该访客（不用重启服务）
 
 ```
 clash-sub-converter/
-├── index.js                   # 入口（HTTP 服务）
+├── index.js                   # 入口（HTTP 服务装配 + 启动）
+├── server/                    # 后端路由层
+│   ├── api.js                 # REST API 路由（/api/*）
+│   └── sub.js                 # 订阅转换端点（/sub，OpenClash 兼容）
+├── web/                       # 前端静态资源
+│   ├── index.html             # 首页（使用说明）
+│   ├── config.html            # 配置页面
+│   ├── config.css             # 配置页样式
+│   └── config.js              # 配置页逻辑
 ├── package.json
 ├── ecosystem.config.js        # PM2 配置
 ├── config.json                # 站点基准配置（管理员用，仅存差异，被 .gitignore 忽略）
@@ -168,17 +176,12 @@ clash-sub-converter/
 │   ├── proxy-groups.js        # 智能代理分组
 │   ├── rule-manager.js        # 规则管理器
 │   ├── converter.js           # 转换引擎 → Clash YAML
-│   ├── api.js                 # API 路由
-│   ├── user-config.js         # 配置读写（default.json + config.json + 访客配置 三层合并）
-│   ├── guests.js              # 访客识别（IP / ADMIN_IPS / TRUST_PROXY）与访客配置文件管理
-│   ├── user-agents.js         # 拉取订阅的 UA 预设与解析
+│   ├── user/                  # 用户 / 访客管理
+│   │   ├── user-config.js     # 配置读写（default.json + config.json + 访客配置 三层合并）
+│   │   ├── guests.js          # 访客识别（IP / ADMIN_IPS / TRUST_PROXY）与访客配置文件管理
+│   │   └── user-agents.js     # 拉取订阅的 UA 预设与解析
 │   ├── logger.js              # 日志（写 logs/，分级 + 请求编号 + URL 脱敏）
 │   └── utils.js               # 工具函数
-├── public/
-│   ├── index.html             # 首页（使用说明）
-│   ├── config.html            # 配置页面
-│   ├── config.css             # 配置页样式
-│   └── config.js              # 配置页逻辑
 ├── logs/                      # 运行日志（被 .gitignore 忽略）
 │   ├── app.log                # 全量流程日志
 │   └── error.log              # 仅 WARN / ERROR

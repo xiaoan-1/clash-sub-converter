@@ -25,15 +25,15 @@
 
 const fs = require('fs');
 const path = require('path');
-const { ruleManager } = require('./rule-manager');
-const { ruleGroupKeys } = require('./utils');
+const { ruleManager } = require('../rule-manager');
+const { ruleGroupKeys } = require('../utils');
 const guests = require('./guests');
-const logger = require('./logger');
+const logger = require('../logger');
 
 const log = logger.create('config');
 
-const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
-const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'config', 'default.json');
+const CONFIG_PATH = path.join(__dirname, '..', '..', 'config.json');
+const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'default.json');
 
 /**
  * 规则分组未在 default.json 里时的兜底默认出口。

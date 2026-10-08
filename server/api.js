@@ -1,13 +1,13 @@
 const express = require('express');
-const { fetchSubscription } = require('./utils');
-const { readConfig, saveConfig } = require('./user-config');
-const { listPresets, resolveUserAgent } = require('./user-agents');
-const { parseSubscription, parseSubscriptionList, extractClashDns } = require('./parser');
-const { isDomestic, CN_LABEL } = require('./proxy-groups');
-const { ruleManager } = require('./rule-manager');
-const { convertToClash } = require('./converter');
-const guests = require('./guests');
-const logger = require('./logger');
+const { fetchSubscription } = require('../src/utils');
+const { readConfig, saveConfig } = require('../src/user/user-config');
+const { listPresets, resolveUserAgent } = require('../src/user/user-agents');
+const { parseSubscription, parseSubscriptionList, extractClashDns } = require('../src/parser');
+const { isDomestic, CN_LABEL } = require('../src/proxy-groups');
+const { ruleManager } = require('../src/rule-manager');
+const { convertToClash } = require('../src/converter');
+const guests = require('../src/user/guests');
+const logger = require('../src/logger');
 
 const log = logger.create('api');
 

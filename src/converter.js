@@ -1,7 +1,7 @@
 const yaml = require('js-yaml');
 const { generateProxyGroups, isDomestic, normalizeExcludeKeywords, filterByExcludeKeywords } = require('./proxy-groups');
 const { ruleManager } = require('./rule-manager');
-const { readConfig } = require('./user-config');
+const { readConfig } = require('./user/user-config');
 const logger = require('./logger');
 
 const log = logger.create('converter');

@@ -1,4 +1,4 @@
-const { resolveUserAgent, FALLBACK_UA } = require('./user-agents');
+const { resolveUserAgent, FALLBACK_UA } = require('./user/user-agents');
 const { ruleManager, ALWAYS_ON_RULE_ID } = require('./rule-manager');
 const logger = require('./logger');
 
