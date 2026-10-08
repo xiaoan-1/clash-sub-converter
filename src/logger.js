@@ -412,6 +412,7 @@ module.exports = {
   LOG_DIR,
   APP_LOG,
   ERR_LOG,
+  MAX_PREVIEW_SOURCE_BYTES,
   level: {
     file: FILE_LEVEL,
     console: CONSOLE_LEVEL,

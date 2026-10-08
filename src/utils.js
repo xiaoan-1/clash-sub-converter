@@ -4,14 +4,17 @@ const logger = require('./logger');
 
 const log = logger.create('fetch');
 
-/** 默认 UA（未做任何配置时使用） */
+/** 默认 UA（未做任何配置时使用），与 user-agents 的兜底值同源 */
 const DEFAULT_FETCH_UA = FALLBACK_UA;
 
 /** 拉取订阅的超时时间。超时与其它失败要分开报，排查方向完全不同 */
 const SUBSCRIBE_TIMEOUT_MS = 15000;
 
-/** 失败时预览响应正文的上限，超过就不读了，避免把大文件拉进内存 */
-const MAX_PREVIEW_SOURCE_BYTES = 1024 * 1024;
+/**
+ * 失败时预览响应正文的上限，超过就不读了，避免把大文件拉进内存。
+ * 与 logger 的预览阈值共用同一常量，避免两处各调一次而悄悄分叉。
+ */
+const MAX_PREVIEW_SOURCE_BYTES = logger.MAX_PREVIEW_SOURCE_BYTES;
 
 /**
  * Base64 解码
@@ -61,6 +64,9 @@ function readSubHeader(headers, name) {
  *   upload=1234; download=5678; total=107374182400; expire=1735660800
  * 缺失的字段不输出；无法解析时返回 null。
  *
+ * 注意空值必须跳过：`Number('')` 是 0（有限且 >= 0），若不过滤会把
+ * `total=` / `expire=` 这类空字段当成 0 写出去，客户端会显示「总流量 0」。
+ *
  * @returns {{upload?:number,download?:number,total?:number,expire?:number}|null}
  */
 function parseUserInfo(value) {
@@ -71,9 +77,16 @@ function parseUserInfo(value) {
     if (idx < 0) continue;
     const key = part.slice(0, idx).trim().toLowerCase();
     if (!['upload', 'download', 'total', 'expire'].includes(key)) continue;
-    const num = Number(part.slice(idx + 1).trim());
-    if (!Number.isFinite(num) || num < 0) continue;
-    info[key] = Math.floor(num);
+    const raw = part.slice(idx + 1).trim();
+    if (!raw) continue;   // 空值跳过，不能当成 0
+    const num = Number(raw);
+    // 只接受十进制整数：排除 Infinity / 科学计数法 / 十六进制等异常写法
+    if (!/^\d+$/.test(raw) || !Number.isFinite(num)) continue;
+    const n = Math.floor(num);
+    // 上界约束：expire 为 Unix 时间戳（2100 年前），其余为字节数（≤ 1 PiB）
+    const limit = key === 'expire' ? 4102444800 : 1024 ** 5;
+    if (n > limit) continue;
+    info[key] = n;
   }
   return Object.keys(info).length ? info : null;
 }
@@ -398,13 +411,19 @@ function applySubscriptionHeaders(res, metas) {
   const userInfo = mergeUserInfo(list.map(m => m.userInfo));
   if (userInfo) res.setHeader('subscription-userinfo', formatUserInfo(userInfo));
 
-  const homeUrl = list.map(m => m.homeUrl).find(Boolean);
+  // 多订阅时以下三项只取第一份非空的：把「取自哪一份」一并记下，
+  // 否则订阅名/官网与用户预期不符时无从判断是不是取错了源。
+  const pickFirst = (key) => {
+    const idx = list.findIndex(m => m[key]);
+    return idx < 0 ? '' : list[idx][key];
+  };
+  const homeUrl = pickFirst('homeUrl');
   if (homeUrl) res.setHeader('profile-web-page-url', homeUrl);
 
-  const interval = list.map(m => m.updateInterval).find(Boolean);
+  const interval = pickFirst('updateInterval');
   if (interval) res.setHeader('profile-update-interval', interval);
 
-  const fileName = list.map(m => m.fileName).find(Boolean);
+  const fileName = pickFirst('fileName');
   if (fileName) {
     try {
       res.setHeader('Content-Disposition', buildContentDisposition(fileName));
@@ -419,6 +438,14 @@ function applySubscriptionHeaders(res, metas) {
     homeUrl: homeUrl || '(无)',
     interval: interval || '(无)',
     fileName: fileName || '(无)',
+    // 多订阅时注明各项取自第几份，便于对照订阅名/官网是否来自预期的那一份
+    pickedFrom: list.length > 1
+      ? {
+          homeUrl: homeUrl ? list.findIndex(m => m.homeUrl) + 1 : undefined,
+          interval: interval ? list.findIndex(m => m.updateInterval) + 1 : undefined,
+          fileName: fileName ? list.findIndex(m => m.fileName) + 1 : undefined,
+        }
+      : undefined,
   });
 }
 
@@ -475,7 +502,10 @@ const MIN_FRAGMENT_LEN = 3;
  */
 function patternMatchGroup(pattern, groupKey) {
   if (!pattern) return false;
-  const clean = pattern.replace(/^\(\?i\)/, '');
+  const clean = pattern.replace(/^\(\?i\)/, '').trim();
+  // 去掉 (?i) 后为空的模式（如 OpenClash 发了 `(?i)`）不能匹配任何分组：
+  // new RegExp('') 匹配任意字符串，会把全部规则组静默打开/关闭。
+  if (!clean) return false;
   // 自身 id 始终作为候选：别名表若漏写自身 id，该组会静默失效（本次修过的同类 bug）
   const candidates = [groupKey, ...(RULE_GROUP_ALIASES[groupKey] || [])];
   try {
@@ -535,7 +565,6 @@ module.exports = {
   parseUserInfo,
   mergeUserInfo,
   formatUserInfo,
-  DEFAULT_FETCH_UA,
   RULE_GROUP_ALIASES,
   patternMatchGroup,
   parseRuleOptions,
