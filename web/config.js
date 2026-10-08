@@ -4,7 +4,7 @@
 
 // ========== 全局状态 ==========
 var allNodes = []; // 最近一次转换的活跃节点 [{ name, domestic }]
-var allRegions = []; // 最近一次转换生成的地区分组名（启用地区分组时非空）
+var allRegions = []; // 上层分组的候选（地区分组 + 🇨🇳 中国大陆），供「默认出口」下拉使用
 var config = { groups: [], nodeFilter: 'all', excludeKeywords: [] };
 var conversionResult = null; // 最近一次转换结果 { yaml, summary }
 var uaPresets = []; // 订阅拉取 UA 预设（来自 /api/user-agents）
@@ -403,6 +403,9 @@ function doConvert() {
  * 用转换结果里的节点清单刷新下拉框候选。
  * 节点名只有在解析订阅之后才知道，此前 allNodes 恒为空数组，
  * 于是「分组 → 默认出口」下拉框永远只列 3 个固定项，用户选不到具体节点。
+ *
+ * allRegions 用后端给的 summary.regions —— 它是「上层分组的候选清单」
+ * （地区分组 + 🇨🇳 中国大陆），前端不去猜哪些分组算地区，避免规则与后端分叉。
  */
 function applyNodeList(summary) {
 	allNodes = (summary && summary.nodes) || [];

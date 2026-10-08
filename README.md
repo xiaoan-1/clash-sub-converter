@@ -53,6 +53,22 @@ npm run status   # 状态
 > 若订阅转换正常、但导入 OpenClash 后**节点全部无法使用**，多半是客户端 DNS 问题
 > （而非本项目）—— 见 [docs/OpenClash-DNS排查.md](docs/OpenClash-DNS排查.md)。
 
+### 内核校验（可选）
+
+生成的配置存在一些**只有内核才能发现的语义约束**，例如分组循环引用、
+规则指向已关闭的分组 —— 这两类问题都会让 mihomo 直接拒绝加载整份配置，
+而从 YAML 上看不出任何异常。若要验证改动，可下载内核后运行：
+
+```bash
+# 1. 从 https://github.com/MetaCubeX/mihomo/releases 下载
+#    mihomo-windows-amd64-compatible-*.zip 并解压到 tools/
+# 2. 生成 16 组配置组合（默认 / 地区组开关 / 规则组全关 / 空配置…）逐一校验
+npm run verify
+```
+
+需要 `samples/` 下存在订阅样例（`mock-sub.yaml` 或 `订阅.txt`）。
+全部通过时退出码为 0，可直接接进 CI。
+
 ## 在 OpenClash 中使用
 
 1. 启动本服务

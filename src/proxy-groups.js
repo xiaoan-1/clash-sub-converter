@@ -195,6 +195,11 @@ function generateProxyGroups(proxies, options = {}) {
 	const useRegionCandidates = regionsEnabled && regionMap.size > 0;
 	const candidates = useRegionCandidates ? regionNames : activeProxies;
 
+	// 暴露给上层的「地区分组」清单：**不含 🇨🇳 中国大陆**。
+	// 中国大陆是独立的内置分组（由 domestic 开关控制），不是地区生成器的产物；
+	// 混在一起会让前端把它显示成地区组，用户也会以为关掉地区分组它就会消失。
+	const generatedRegionNames = regionsEnabled ? [...regionMap.keys()] : [];
+
 	const groups = [];
 
 	// 1. 🚀 节点选择（必须，不可禁用）
@@ -225,15 +230,19 @@ function generateProxyGroups(proxies, options = {}) {
 	});
 
 	// 3. 🇨🇳 中国大陆（可选，仅在有国内节点时出现）
+	//
+	//    ⚠️ 这是「叶子组」：它被 🚀 节点选择 引用（在 candidates 里），
+	//    因此**绝不能**反过来引用 节点选择 / 自动选择，否则形成
+	//    `节点选择 → 中国大陆 → 节点选择` 的环，mihomo 会直接拒绝加载整份配置
+	//    （报 `loop is detected in ProxyGroup`）。
+	//    这也是为什么它不能用 FIXED_OPTIONS —— 那三个选项里有两个是分组。
+	//    叶子组只列具体节点，与地区组（🇭🇰 香港 等）的结构保持一致。
 	if (domesticEnabled) {
-		// 类型与默认出口跟随界面配置：原实现写死 select + DIRECT，
-		// 界面上的两个下拉框选了也不生效。
-		const defProxy = domesticCfg?.defaultProxy || 'DIRECT';
-		const otherOptions = FIXED_OPTIONS.filter(o => o !== defProxy);
 		groups.push({
 			name: CN_LABEL,
 			type: domesticCfg?.type || 'select',
-			proxies: [defProxy, ...otherOptions, ...domesticProxies],
+			// DIRECT 排头作为默认出口：国内节点走直连更合理
+			proxies: ['DIRECT', ...domesticProxies],
 		});
 	}
 
@@ -304,14 +313,79 @@ function generateProxyGroups(proxies, options = {}) {
 	});
 
 	const result = sanitizeGroupRefs(groups, activeProxies);
-	// 地区分组清单挂在数组上供 converter 生成 summary（前端「默认出口」下拉要用）。
-	// 数组自带属性不会被 yaml.dump 序列化，不影响输出。
+	// 挂在数组上供 converter 生成 summary。数组自带属性不会被 yaml.dump 序列化，不影响输出。
+	//   regionNames          上层分组的候选（含 🇨🇳 中国大陆，前端「默认出口」下拉要用）
+	//   generatedRegionNames 生成器产出的地区组（不含中国大陆，用于结果页展示）
 	result.regionNames = regionNames;
+	result.generatedRegionNames = generatedRegionNames;
 	return result;
 }
 
 /** 内核内置的代理名，无需在 groups 中定义 */
 const BUILTIN_PROXIES = new Set(['DIRECT', 'REJECT', 'PASS', 'GLOBAL']);
+
+/**
+ * 判断 from 是否（间接）引用 target。
+ *
+ * 用于环检测：若候选分组 p 能走回当前分组 g，把 p 放进 g 的候选就构成环。
+ * 带 seen 集合防自身死循环。
+ */
+function referencesBack(from, target, byName, seen) {
+	if (from === target) return true;
+	if (seen.has(from)) return false;
+	seen.add(from);
+	const g = byName.get(from);
+	if (!g || !Array.isArray(g.proxies)) return false;
+	for (const p of g.proxies) {
+		if (byName.has(p) && referencesBack(p, target, byName, seen)) return true;
+	}
+	return false;
+}
+
+/**
+ * 断开分组之间的循环引用。
+ *
+ * mihomo 遇到 `loop is detected in ProxyGroup` 会**拒绝加载整份配置**，
+ * 用户看到的是「订阅完全不可用」。而这类环从名字上看不出问题（引用都存在），
+ * 只靠「悬空引用检查」发现不了 —— 必须专门检测。
+ *
+ * 典型场景：`🚀 节点选择` 的候选含 `🇨🇳 中国大陆`，
+ * 若中国大陆又列出 `🚀 节点选择`，两者互引成环。
+ *
+ * 处理方式：逐个分组检查它的每个「分组候选」，若该候选能走回本分组，
+ * 就把这条引用移除（保留 DIRECT 兜底，避免分组变空）。
+ *
+ * @param {Array} groups
+ * @returns {Array} 同一个数组（就地修正）
+ */
+function breakGroupCycles(groups) {
+	const byName = new Map(groups.map(g => [g.name, g]));
+	let removed = 0;
+
+	for (const group of groups) {
+		if (!Array.isArray(group.proxies)) continue;
+		const before = group.proxies.length;
+		group.proxies = group.proxies.filter(p => {
+			if (!byName.has(p)) return true; // 不是分组引用，与环无关
+			// p 能走回本分组 → 保留它就成环
+			const cyclic = referencesBack(p, group.name, byName, new Set());
+			if (cyclic) removed++;
+			return !cyclic;
+		});
+		if (group.proxies.length === 0) group.proxies = ['DIRECT'];
+		if (group.proxies.length !== before) {
+			log.warn('分组存在循环引用，已移除造成环的候选', {
+				group: group.name,
+				removed: before - group.proxies.length,
+			});
+		}
+	}
+
+	if (removed) {
+		log.warn('已断开分组循环引用（否则内核会拒绝加载整份配置）', { removed });
+	}
+	return groups;
+}
 
 /**
  * 移除对不存在分组的引用，并保证每个分组至少有一项。
@@ -341,7 +415,8 @@ function sanitizeGroupRefs(groups, proxyNames = []) {
 		// 空分组同样会被内核拒绝，兜底为直连
 		group.proxies = kept.length ? kept : ['DIRECT'];
 	}
-	return groups;
+	// 必须在悬空引用清理之后做：先保证引用都存在，再判断是否成环
+	return breakGroupCycles(groups);
 }
 
 module.exports = {

@@ -39,7 +39,13 @@ class AllProxiesFilteredError extends Error {
 function resolveUserConfig(options = {}) {
 	const userConfig = readConfig(options.guestId);
 	return {
-		userGroups: options.userGroups || userConfig?.groups || [],
+		// 用 length 判断而不是 `||`：空数组是 truthy，会让 `userGroups: []`
+		// 覆盖掉配置里的分组开关（表现为「配置页关掉的分组又冒出来」）。
+		// 空数组应视为「未指定，走配置」。
+		userGroups:
+			Array.isArray(options.userGroups) && options.userGroups.length
+				? options.userGroups
+				: userConfig?.groups || [],
 		nodeFilters: options.nodeFilters || userConfig?.nodeFilters || {},
 		excludeKeywords: options.excludeKeywords || userConfig?.excludeKeywords || [],
 	};
@@ -125,6 +131,43 @@ function applyNodeFilters(proxies, nodeFilters = {}, excludeKeywords = []) {
 
 /** 内核内置策略名：节点不能与之同名 */
 const RESERVED_PROXY_NAMES = new Set(['DIRECT', 'REJECT', 'PASS', 'GLOBAL']);
+
+/**
+ * 丢弃 target 指向不存在分组的规则。
+ *
+ * mihomo 对 `proxy not found` 是**零容忍**的 —— 一条规则指向已关闭的分组就会
+ * 拒绝加载整份配置，用户看到的是「订阅完全不可用」，而配置看起来毫无异常。
+ *
+ * 分组缺失的典型来源：用户在配置页关掉了某个规则组。分组生成与规则生成各自
+ * 判断开关（一个看 userGroups、一个看 ruleOptions），两边一旦不同步就会漏出
+ * 悬空 target，因此这里以「实际生成的分组」为准做最终收口。
+ *
+ * @param {string[]} rules     形如 'DOMAIN-SUFFIX,t.me,💬 Telegram'
+ * @param {Array} proxyGroups  实际生成的分组
+ * @returns {string[]} 过滤后的规则
+ */
+function filterRulesByExistingTargets(rules, proxyGroups) {
+	const valid = new Set([...proxyGroups.map(g => g.name), ...RESERVED_PROXY_NAMES]);
+
+	// 规则里可能用 no-resolve 之类的修饰段，target 取最后一个逗号后的内容
+	const dropped = [];
+	const kept = rules.filter(rule => {
+		const text = String(rule);
+		const target = text.slice(text.lastIndexOf(',') + 1).trim();
+		// 无逗号（如 MATCH,🐟 漏网之鱼 一定带逗号）或 target 合法 → 保留
+		if (!target || valid.has(target)) return true;
+		dropped.push(`${text} → ${target}`);
+		return false;
+	});
+
+	if (dropped.length) {
+		log.warn('规则指向不存在的分组，已移除（否则内核会拒绝加载整份配置）', {
+			dropped: dropped.length,
+			sample: dropped.slice(0, 5),
+		});
+	}
+	return kept;
+}
 
 /**
  * 处理两类会让 mihomo 报错或让节点「选不中」的命名问题。
@@ -227,10 +270,18 @@ function convertToClash(proxies, options = {}) {
 	// 过滤只保留 applyNodeFilters 一处，避免两个地方各过滤一遍而悄悄分叉。
 	const proxyGroups = generateProxyGroups(activeProxies, { ...proxyGroupOptions, userGroups });
 
-	// 生成规则
-	const rules = includeDefaultRules
+	// 生成规则。
+	//
+	// 规则组开关有两个互不相干的来源：
+	//   - ruleOptions  来自 OpenClash 的 include/exclude（仅 /sub 路径会传）
+	//   - userGroups   来自配置页的分组开关（user-config 的 groupOverrides）
+	// 早期实现让两者各自过滤，于是「在配置页关掉某个规则组」时分组没了、
+	// rules 里却仍指向它 —— mihomo 会因 `proxy not found` 拒绝加载整份配置。
+	// 这里统一按「实际生成的分组」做一次收口，只保留 target 确实存在的规则。
+	const rawRules = includeDefaultRules
 		? ruleManager.generateRules(ruleOptions)
 		: ruleOptions.customRules || ['MATCH,🐟 漏网之鱼'];
+	const rules = filterRulesByExistingTargets(rawRules, proxyGroups);
 
 	// 构建完整的配置对象
 	const config = {
@@ -304,9 +355,13 @@ function convertToClash(proxies, options = {}) {
 		// 一并返回 domestic 标记，前端就不必再抄一份国内关键词表
 		// （关键词表在 config/regions.json，抄过去的那一份必然与后端漂移）。
 		nodes: activeProxies.map(p => ({ name: p.name, domestic: isDomestic(p.name) })),
-		// 本次生成的地区分组名。两级结构下上层分组的候选是地区分组而非具体节点，
-		// 前端「默认出口」下拉必须据此列选项，否则用户会看到「香港」但选不到。
+		// 上层 select 分组的候选清单（地区分组 + 🇨🇳 中国大陆）。
+		// 两级结构下上层分组的候选是分组而非具体节点，前端「默认出口」下拉
+		// 必须据此列选项，否则用户会看到「香港」但选不到。
+		// 注意含中国大陆 —— 它虽不是生成器的产物，但同样是合法候选。
 		regions: proxyGroups.regionNames || [],
+		// 生成器产出的地区分组（不含中国大陆），供结果页/文档区分「生成器产物」。
+		generatedRegions: proxyGroups.generatedRegionNames || [],
 		groups: groupList,
 	};
 

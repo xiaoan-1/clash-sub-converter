@@ -3,6 +3,9 @@ samples/
 node_modules/
 guests/
 
+# 本地验证用的 mihomo 内核与临时配置
+tools/
+
 # 本项目统一用 pnpm（pnpm-lock.yaml 已纳入版本控制）。
 # npm 生成的 lockfile 不参与依赖解析，留着只会与 pnpm-lock 分叉。
 package-lock.json
