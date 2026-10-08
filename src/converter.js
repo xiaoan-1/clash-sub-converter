@@ -288,8 +288,13 @@ function convertToSurge(proxies, options = {}) {
         if (proxy.sni) line += ', sni=' + proxy.sni;
         if (proxy['skip-cert-verify']) line += ', skip-cert-verify=true';
         break;
+      case 'tuic':
+        line = `${proxy.name} = tuic, ${proxy.server}, ${proxy.port}, uuid=${proxy.uuid}, password=${proxy.password || proxy.token || ''}`;
+        if (proxy.sni) line += ', sni=' + proxy.sni;
+        if (proxy['skip-cert-verify']) line += ', skip-cert-verify=true';
+        break;
       default:
-        // ssr 等 Surge 不支持的协议，静默跳过
+        // ssr / anytls 等 Surge 不支持的协议，静默跳过
         continue;
     }
     if (line) lines.push(line);

@@ -1,12 +1,12 @@
 # Clash 订阅转换器
 
-自部署的代理订阅转换服务，将 VMess / SS / SSR / Trojan / VLESS / Hysteria2 订阅转换为 Clash 配置文件，附带 Web 配置界面、智能分组和 17 组分流规则。
+自部署的代理订阅转换服务，将 VMess / SS / SSR / Trojan / VLESS / Hysteria2 / AnyTLS / TUIC 订阅转换为 Clash 配置文件，附带 Web 配置界面、智能分组和 17 组分流规则。
 
 > 替代第三方转换服务，订阅数据不经过外部服务器，安全可控。
 
 ## 功能特性
 
-- **多协议解析** — 支持 7 种代理协议，自动识别 Base64 / YAML 格式
+- **多协议解析** — 支持 8 种代理协议，自动识别 Base64 / YAML 格式
 - **智能分组** — 根据节点名称自动识别 22 个地区，生成 url-test 分组
 - **17 组分流规则** — 覆盖 AI、流媒体、游戏、社交通讯等主流服务
 - **Web 配置界面** — 可视化管理过滤规则、分组策略、排除关键词
@@ -164,7 +164,7 @@ clash-sub-converter/
 │       ├── steam-download.json # 🎮 Steam 下载/联机
 │       └── mihoyo.json        # ⭕️💰 miHoYo
 ├── src/
-│   ├── parser.js              # 订阅解析器（7 种协议）
+│   ├── parser.js              # 订阅解析器（8 种协议）
 │   ├── proxy-groups.js        # 智能代理分组
 │   ├── rule-manager.js        # 规则管理器
 │   ├── converter.js           # 转换引擎 → Clash YAML
@@ -270,6 +270,8 @@ curl "http://127.0.0.1:25500/sub?target=clash&ua=clash-verge%2Fv2.0.0&url=https:
 | Trojan | `trojan://` | WS / gRPC |
 | VLESS | `vless://` | WS / gRPC |
 | Hysteria2 | `hysteria2://` / `hy2://` | — |
+| AnyTLS | `anytls://` | — |
+| TUIC | `tuic://` | QUIC |
 | Clash YAML | 含 `proxies:` 的完整配置 | — |
 
 ## 节点过滤

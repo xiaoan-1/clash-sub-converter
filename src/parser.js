@@ -5,7 +5,7 @@ const logger = require('./logger');
 const log = logger.create('parser');
 
 // 支持的代理类型
-const SUPPORTED_TYPES = new Set(['vmess', 'ss', 'ssr', 'trojan', 'vless', 'hysteria2', 'shadowsocks', 'shadowsocksr']);
+const SUPPORTED_TYPES = new Set(['vmess', 'ss', 'ssr', 'trojan', 'vless', 'hysteria2', 'anytls', 'tuic', 'shadowsocks', 'shadowsocksr']);
 
 /**
  * 尝试将内容解析为包含 proxies 数组的 Clash YAML 文档
@@ -63,7 +63,7 @@ function tryParseClashYaml(content) {
  * 统一代理类型名称（shadowsocks → ss 等）
  */
 // 支持解码的 URI scheme 前缀
-const URI_SCHEME_PREFIXES = ['vmess://', 'ss://', 'ssr://', 'trojan://', 'vless://', 'hysteria2://', 'hy2://'];
+const URI_SCHEME_PREFIXES = ['vmess://', 'ss://', 'ssr://', 'trojan://', 'vless://', 'hysteria2://', 'hy2://', 'anytls://', 'tuic://'];
 
 /**
  * 判断文本是否为可解析的 Clash YAML（含 proxies 数组）
@@ -153,6 +153,10 @@ function parseSubscription(content) {
         proxy = parseVless(line);
       } else if (line.startsWith('hysteria2://') || line.startsWith('hy2://')) {
         proxy = parseHysteria2(line);
+      } else if (line.startsWith('anytls://')) {
+        proxy = parseAnyTLS(line);
+      } else if (line.startsWith('tuic://')) {
+        proxy = parseTUIC(line);
       } else {
         // 不支持的 scheme，原来的实现在这里静默跳过
         const scheme = (line.match(/^([a-z0-9+.-]+):\/\//i) || [, '(无 scheme)'])[1].toLowerCase();
@@ -615,7 +619,77 @@ function parseHysteria2(link) {
   const sni = url.searchParams.get('sni');
   if (sni) proxy.sni = sni;
 
-  const skipCert = url.searchParams.get('insecure');
+ 
+
+/**
+ * 解析 AnyTLS 链接
+ * 格式: anytls://password@server:port?params#name
+ */
+function parseAnyTLS(link) {
+  const url = new URL(link);
+  const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
+
+  const proxy = {
+    name,
+    type: 'anytls',
+    server: url.hostname,
+    port: parseInt(url.port),
+    password: url.username,
+    udp: true
+  };
+
+  const sni = url.searchParams.get('sni') || url.searchParams.get('peer');
+  if (sni) proxy.sni = sni;
+
+  const skipCert = url.searchParams.get('allowInsecure') || url.searchParams.get('insecure');
+  if (skipCert === '1' || skipCert === 'true') proxy['skip-cert-verify'] = true;
+
+  return proxy;
+}
+
+/**
+ * 解析 TUIC 链接
+ * 格式: tuic://uuid:password@server:port?params#name   （TUIC V5）
+ *       tuic://token@server:port?params#name           （TUIC V4）
+ */
+function parseTUIC(link) {
+  const url = new URL(link);
+  const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
+
+  const proxy = {
+    name,
+    type: 'tuic',
+    server: url.hostname,
+    port: parseInt(url.port),
+    udp: true
+  };
+
+  // userinfo:uuid:password 由 URL 规范自动拆成 username/password（V5）；
+  // 只有单个 token 时 username 承载全部内容（V4）
+  if (url.username && url.password) {
+    proxy.uuid = url.username;
+    proxy.password = url.password;
+  } else if (url.username) {
+    proxy.token = url.username;
+  }
+
+  const sni = url.searchParams.get('sni');
+  if (sni) proxy.sni = sni;
+
+  const alpn = url.searchParams.get('alpn');
+  if (alpn) proxy.alpn = alpn.split(',').map(s => s.trim()).filter(Boolean);
+
+  const congestion = url.searchParams.get('congestion_control') || url.searchParams.get('congestion-controller');
+  if (congestion) proxy['congestion-controller'] = congestion;
+
+  const udpRelay = url.searchParams.get('udp_relay_mode') || url.searchParams.get('udp-relay-mode');
+  if (udpRelay) proxy['udp-relay-mode'] = udpRelay;
+
+  const skipCert = url.searchParams.get('allowInsecure') || url.searchParams.get('insecure');
+  if (skipCert === '1' || skipCert === 'true') proxy['skip-cert-verify'] = true;
+
+  return proxy;
+} const skipCert = url.searchParams.get('insecure');
   if (skipCert === '1') proxy['skip-cert-verify'] = true;
 
   return proxy;
