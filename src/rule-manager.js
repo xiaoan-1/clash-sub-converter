@@ -92,6 +92,14 @@ class RuleManager {
     // 没有任何 flag 时默认全部启用；有 flag 时按 flag 过滤
     const hasFlags = Object.keys(flags).length > 0;
 
+    // 已知的分组名（target）集合：用于判断规则是否已自带 target。
+    // 不能靠「逗号段数 >= 3」判断 —— IP-CIDR,1.2.3.4/32,no-resolve 是 3 段但没有 target，
+    // 那样会被误判为已带 target 而丢掉出口，mihomo 会拒绝加载整份配置。
+    const knownTargets = new Set([
+      'DIRECT', 'REJECT', 'PASS', 'GLOBAL',
+      ...this.getAll().map(r => r.target || r.name),
+    ]);
+
     const rules = [];
     const enabledIds = [];
     const disabledIds = [];
@@ -108,7 +116,9 @@ class RuleManager {
 
       const target = ruleTarget || name;
       for (const rule of patterns) {
-        rules.push(rule.split(',').length >= 3 ? rule : `${rule},${target}`);
+        // 仅当末段是已知 target 时才认为已自带出口；否则补上本分组的 target
+        const last = rule.slice(rule.lastIndexOf(',') + 1).trim();
+        rules.push(knownTargets.has(last) ? rule : `${rule},${target}`);
       }
     }
 

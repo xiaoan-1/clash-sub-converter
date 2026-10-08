@@ -16,6 +16,7 @@
     { "builtin": "select",    "name": "🚀 节点选择",  "type": "select",   "defaultProxy": "♻️ 自动选择" },
     { "builtin": "auto",      "name": "♻️ 自动选择",  "type": "url-test", "defaultProxy": "♻️ 自动选择" },
     { "builtin": "domestic",  "name": "🇨🇳 中国大陆", "type": "select",   "enabled": true, "defaultProxy": "DIRECT" },
+    { "builtin": "regions",   "name": "🌏 地区分组",   "type": "url-test", "enabled": true },
     { "ruleId": "apple",      "name": "🍎 Apple 服务",   "type": "select", "enabled": true, "defaultProxy": "DIRECT" },
     { "ruleId": "microsoft",  "name": "Ⓜ️ 微软服务",    "type": "select", "enabled": true, "defaultProxy": "DIRECT" },
     { "ruleId": "bahamut",    "name": "🎮 巴哈姆特",    "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
