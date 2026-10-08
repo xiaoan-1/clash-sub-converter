@@ -1,5 +1,6 @@
 const yaml = require('js-yaml');
 const { base64Decode } = require('./utils/encoding');
+const { filterValidProxies } = require('./utils/proxy-validator');
 const logger = require('./logger');
 
 const log = logger.create('parser');
@@ -87,7 +88,8 @@ function tryParseClashYaml(content) {
 	const doc = tryLoadClashDoc(content);
 	if (!doc) return null;
 
-	const proxies = doc.proxies
+	const declared = doc.proxies.length;
+	const candidates = doc.proxies
 		.filter(p => p && p.name && SUPPORTED_TYPES.has(normalizeType(p.type)))
 		.map(p => {
 			const proxy = { ...p, type: normalizeType(p.type) };
@@ -98,9 +100,15 @@ function tryParseClashYaml(content) {
 			return proxy;
 		});
 
+	// 字段校验：缺 port / uuid / password 的节点写进配置会让 mihomo 拒绝加载
+	// **整份配置**，所以在这里丢弃，而不是留给客户端报错。
+	const invalid = [];
+	const proxies = filterValidProxies(candidates, (p, reason) => {
+		if (invalid.length < 10) invalid.push(`${p.name}<${p.type}>: ${reason}`);
+	});
+
 	// YAML 里声明了但类型不受支持 / 缺 name 的节点，会在上面被静默过滤掉。
 	// 这是「订阅里明明有 200 个节点，转换后只剩 150」最常见的原因，必须留下痕迹。
-	const declared = doc.proxies.length;
 	if (proxies.length !== declared) {
 		const skipped = doc.proxies
 			.filter(p => !p || !p.name || !SUPPORTED_TYPES.has(normalizeType(p.type)))
@@ -110,7 +118,8 @@ function tryParseClashYaml(content) {
 			declared,
 			kept: proxies.length,
 			dropped: declared - proxies.length,
-			sample: skipped,
+			unsupported: skipped.length ? skipped : undefined,
+			invalid: invalid.length ? invalid : undefined,
 		});
 	}
 
@@ -256,15 +265,28 @@ function parseSubscription(content) {
 		});
 	}
 
+	// 字段校验：解析器只管拆字段，缺 port / uuid / password 时照样会返回对象。
+	// 这类节点会让 mihomo 拒绝加载整份配置，必须在进入转换前剔除。
+	const invalid = [];
+	const valid = filterValidProxies(proxies, (p, reason) => {
+		if (invalid.length < 10) invalid.push(`${p.name || '(无名)'}<${p.type}>: ${reason}`);
+	});
+	if (invalid.length) {
+		log.warn('部分节点字段不完整，已跳过', {
+			dropped: proxies.length - valid.length,
+			sample: invalid,
+		});
+	}
+
 	log.debug('按 URI 列表解析', {
 		bytes: raw.length,
 		base64: wasBase64,
 		lines: lines.length,
-		proxies: proxies.length,
-		types: logger.countBy(proxies, p => p.type),
+		proxies: valid.length,
+		types: logger.countBy(valid, p => p.type),
 	});
 
-	return proxies;
+	return valid;
 }
 
 /**

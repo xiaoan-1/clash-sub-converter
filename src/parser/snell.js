@@ -2,9 +2,12 @@
  * Snell 解析
  * 格式: snell://psk@server:port?params#name
  */
+const { parseNodeUrl } = require('./utils');
+
 function parseSnell(link) {
-	const url = new URL(link);
-	const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
+	const parsed = parseNodeUrl(link);
+	if (!parsed) return null;
+	const { url, name } = parsed;
 
 	const proxy = {
 		name,

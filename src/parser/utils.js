@@ -17,6 +17,42 @@ function safeDecodeURIComponent(str) {
 }
 
 /**
+ * 把 `scheme://...` 节点链接解析成 URL，并取出节点名。
+ *
+ * 各协议解析器原本各写一遍 `new URL(link)` + `decodeURIComponent(url.hash)`，
+ * 两处都会抛异常且都没兜底：
+ *   - `new URL()` 对 `trojan://pw@:443` 这类畸形串抛 `Invalid URL`
+ *   - `decodeURIComponent()` 对名称里的裸 `%`（如 `#100%稳定`）抛 `URI malformed`
+ * 异常会被 parseSubscription 的 try/catch 兜住并丢弃该节点 —— 结果是「订阅里
+ * 有这条节点，转换后却凭空少了」，且日志里只有一句 URI malformed 看不出是哪条。
+ *
+ * @param {string} link 原始节点链接
+ * @returns {{url:URL, name:string}|null} 无法解析成 URL 时返回 null
+ */
+function parseNodeUrl(link) {
+	const s = String(link);
+	let url;
+	try {
+		url = new URL(s);
+	} catch {
+		return null;
+	}
+	// 主机名是后续组装配置的必需项，缺失时直接判定为无效
+	if (!url.hostname) return null;
+
+	// 名称从**原始串**里取，不能用 url.hash：URL 解析会把裸 `%` 转义成 `%25`、
+	// 又把中文编码成 `%XX`，两者混在一起无法还原
+	// （`#100%稳定` → `#100%%E7%A8%B3%E5%AE%9A`，解出来是乱码）。
+	// 直接取原始 fragment 再宽容解码才是对的：
+	//   已编码 `#%E5%8F%B0%E6%B9%BE` → 解出「台湾」
+	//   未编码 `#100%稳定`          → 裸 % 解不出 → 原样保留「100%稳定」
+	const hashIdx = s.indexOf('#');
+	const raw = hashIdx >= 0 ? s.slice(hashIdx + 1) : '';
+	const name = safeDecodeURIComponent(raw).trim() || `${url.hostname}:${url.port}`;
+	return { url, name };
+}
+
+/**
  * 解析 SS 的 userinfo，得到 { method, password }。
  *
  * SIP002 规定 userinfo 既可以是 URL-safe base64，也可以是 URL 编码的明文，两种都得支持：
@@ -43,4 +79,4 @@ function parseSsUserInfo(userinfo) {
 	};
 }
 
-module.exports = { safeDecodeURIComponent, parseSsUserInfo };
+module.exports = { safeDecodeURIComponent, parseSsUserInfo, parseNodeUrl };

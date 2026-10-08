@@ -146,6 +146,12 @@ router.post('/convert', async (req, res) => {
 		}
 
 		if (!sources.some(s => s && s.trim())) {
+			// 与 /sub 保持一致：把逐条失败原因一并返回，否则用户只看到
+			// 「无法获取任何订阅内容」，不知道是 403 被拦、超时，还是地址写错。
+			const hasHttpError = fetchFailures.some(f => /HTTP 4\d\d/.test(f.reason || ''));
+			const hint = hasHttpError
+				? '订阅源返回了错误状态码：订阅地址可能已失效，或拉取所用 UA 被机场安全规则拦截。请在「订阅拉取设置」中选择与你客户端一致的 UA。'
+				: '无法连接到订阅源，请检查网络或订阅地址。';
 			clog.warn('无法获取任何订阅内容，终止转换', {
 				attempted: urls.length,
 				'by-stage': fetchFailures.length
@@ -168,7 +174,11 @@ router.post('/convert', async (req, res) => {
 						)
 					: undefined,
 			});
-			return res.status(400).json({ error: '无法获取任何订阅内容' });
+			return res.status(400).json({
+				error: '无法获取任何订阅内容',
+				hint,
+				failures: fetchFailures,
+			});
 		}
 
 		const { proxies, dropped } = parseSubscriptionList(sources);

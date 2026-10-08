@@ -1,14 +1,16 @@
 /**
  * SOCKS5 / HTTP 通用代理解析（字段结构几乎一致，合并管理）
  */
+const { parseNodeUrl } = require('./utils');
 
 /**
  * 解析 SOCKS5 链接
  * 格式: socks5://user:pass@server:port?params#name
  */
 function parseSocks(link) {
-	const url = new URL(link);
-	const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
+	const parsed = parseNodeUrl(link);
+	if (!parsed) return null;
+	const { url, name } = parsed;
 
 	const proxy = {
 		name,
@@ -40,10 +42,9 @@ function parseSocks(link) {
  *       https://user:pass@server:port?tls=true#name
  */
 function parseHttp(link) {
-	const url = new URL(link);
-	const name =
-		decodeURIComponent(url.hash.substring(1)) ||
-		`${url.hostname}:${url.port || (url.protocol === 'https:' ? 443 : 80)}`;
+	const parsed = parseNodeUrl(link);
+	if (!parsed) return null;
+	const { url, name } = parsed;
 
 	const proxy = {
 		name,

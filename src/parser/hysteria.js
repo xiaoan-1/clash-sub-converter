@@ -1,14 +1,16 @@
 /**
  * Hysteria / Hysteria2 解析（同族 QUIC 协议）
  */
+const { parseNodeUrl } = require('./utils');
 
 /**
  * 解析 Hysteria2 链接
  * 格式: hysteria2://password@server:port?params#name
  */
 function parseHysteria2(link) {
-	const url = new URL(link);
-	const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
+	const parsed = parseNodeUrl(link);
+	if (!parsed) return null;
+	const { url, name } = parsed;
 
 	const proxy = {
 		name,
@@ -36,8 +38,9 @@ function parseHysteria2(link) {
  * 认证方式：auth-str（密码）或 auth（base64 的用户名:密码）
  */
 function parseHysteria(link) {
-	const url = new URL(link);
-	const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
+	const parsed = parseNodeUrl(link);
+	if (!parsed) return null;
+	const { url, name } = parsed;
 
 	const proxy = {
 		name,

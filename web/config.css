@@ -105,6 +105,9 @@ h3 {
 	margin-top: 10px;
 	font-size: 13px;
 	display: none;
+	/* 错误信息可能带 hint 与逐条失败原因（多行），需要保留换行 */
+	white-space: pre-wrap;
+	word-break: break-all;
 }
 .status-ok {
 	background: #f6ffed;

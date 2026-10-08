@@ -2,9 +2,12 @@
  * WireGuard 解析
  * 格式: wireguard://privateKey@server:port?publicKey=…&ip=…&mtu=…#name
  */
+const { parseNodeUrl } = require('./utils');
+
 function parseWireGuard(link) {
-	const url = new URL(link);
-	const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
+	const parsed = parseNodeUrl(link);
+	if (!parsed) return null;
+	const { url, name } = parsed;
 
 	const proxy = {
 		name,

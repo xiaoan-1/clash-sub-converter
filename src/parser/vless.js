@@ -7,9 +7,12 @@
  *   - SNI 用 servername，不是 sni
  *   - XTLS 流控用 flow
  */
+const { parseNodeUrl } = require('./utils');
+
 function parseVless(link) {
-	const url = new URL(link);
-	const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
+	const parsed = parseNodeUrl(link);
+	if (!parsed) return null;
+	const { url, name } = parsed;
 
 	const proxy = {
 		name,

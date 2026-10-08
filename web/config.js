@@ -303,7 +303,7 @@ function convertFile(file) {
 				});
 			})
 			.then(function (r) {
-				if (!r.ok) throw new Error(r.data.error);
+				if (!r.ok) throw convertError(r.data);
 				conversionResult = r.data;
 				applyNodeList(r.data.summary);
 				setStatus('status-ok', '转换成功，共 ' + r.data.summary.filteredNodes + ' 个节点');
@@ -324,6 +324,29 @@ function convertFile(file) {
 }
 
 // ========== 转换 ==========
+
+/**
+ * 把接口返回的错误体拼成一句可操作的话。
+ *
+ * 后端在 400 时会给 `hint`（下一步怎么做）与 `failures`（逐条订阅为什么失败），
+ * 只显示 `error`（「无法获取任何订阅内容」）等于把最有用的排查信息丢掉了。
+ */
+function convertError(data) {
+	var msg = (data && data.error) || '未知错误';
+	if (data && data.hint) msg += '\n' + data.hint;
+	if (data && data.failures && data.failures.length) {
+		msg +=
+			'\n' +
+			data.failures
+				.map(function (f) {
+					return '· ' + f.url + ' → ' + f.reason + (f.code ? '（' + f.code + '）' : '');
+				})
+				.join('\n');
+	}
+	var e = new Error(msg);
+	e.detail = data;
+	return e;
+}
 
 function doConvert() {
 	// 检查当前模式
@@ -358,7 +381,7 @@ function doConvert() {
 			});
 		})
 		.then(function (r) {
-			if (!r.ok) throw new Error(r.data.error);
+			if (!r.ok) throw convertError(r.data);
 			conversionResult = r.data;
 			applyNodeList(r.data.summary);
 			setStatus(

@@ -3,9 +3,12 @@
  * 格式: tuic://uuid:password@server:port?params#name   （TUIC V5）
  *       tuic://token@server:port?params#name           （TUIC V4）
  */
+const { parseNodeUrl } = require('./utils');
+
 function parseTUIC(link) {
-	const url = new URL(link);
-	const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
+	const parsed = parseNodeUrl(link);
+	if (!parsed) return null;
+	const { url, name } = parsed;
 
 	const proxy = {
 		name,
