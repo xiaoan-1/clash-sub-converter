@@ -29,6 +29,7 @@
     "trojanc",
     "naive"
   ],
+  "proxyUaExcludes": ["prestashop", "openwrt-router"],
   "presets": [
     {
       "id": "auto",

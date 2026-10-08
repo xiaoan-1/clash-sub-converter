@@ -40,6 +40,7 @@ const BUILTIN = {
 	defaultId: 'clash-verge',
 	fallbackUa: 'clash-verge/v2.0.0',
 	proxyUaPatterns: [],
+	proxyUaExcludes: [],
 	presets: [],
 };
 
@@ -51,6 +52,7 @@ function loadConfig() {
 			defaultId: raw.defaultId || BUILTIN.defaultId,
 			fallbackUa: raw.fallbackUa || BUILTIN.fallbackUa,
 			proxyUaPatterns: Array.isArray(raw.proxyUaPatterns) ? raw.proxyUaPatterns : [],
+			proxyUaExcludes: Array.isArray(raw.proxyUaExcludes) ? raw.proxyUaExcludes : [],
 			presets: Array.isArray(raw.presets) ? raw.presets.filter(p => p && p.id) : [],
 		};
 	} catch (err) {
@@ -86,21 +88,73 @@ function isBrowserUA(ua) {
 	return /^Mozilla\//i.test(String(ua || '').trim());
 }
 
+/** 转义正则元字符，避免配置里的 `[` `(` 等让 new RegExp 抛错 */
+function escapeRegExp(s) {
+	return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 构造「代理客户端特征」正则（子串匹配，忽略大小写）。
+ *
+ * 关键难点：真实客户端名里既有「前缀粘连」（OpenClash、ClashX、v2rayN），
+ * 也有「后缀粘连」（ClashForAndroid、ClashforWindows），因此**不能用统一的
+ * 词边界** —— 加了边界会漏判 ClashX / OpenClash / v2rayN。
+ * 所以这里保留子串匹配（保证不漏判），误判交由下面的黑名单处理。
+ *
+ * 同时转义正则元字符并兜住构造异常：agent.json 是用户可编辑文件，
+ * 一个手滑（如填 `naive+`）不能让整个模块在 require 阶段崩溃。
+ *
+ * @returns {RegExp|null}
+ */
+function buildUaPattern(words) {
+	const list = (Array.isArray(words) ? words : []).map(p => String(p).trim()).filter(Boolean);
+	if (!list.length) return null;
+	try {
+		return new RegExp(`(${list.map(escapeRegExp).join('|')})`, 'i');
+	} catch (err) {
+		log.warn('UA 特征正则构造失败', { words: list, reason: err.message });
+		return null;
+	}
+}
+
 /**
  * 已知代理客户端的 UA 特征（来自 config/agent.json 的 proxyUaPatterns）。
  *
  * auto 模式只透传匹配这些特征的调用方 UA —— 否则会把 `node`、`curl/8.x`、
  * `python-requests` 这类通用 UA 转发给机场，在机场看来更像“订阅地址泄漏”。
  */
-const PROXY_UA_PATTERN = CONFIG.proxyUaPatterns.length
-	? new RegExp(CONFIG.proxyUaPatterns.join('|'), 'i')
-	: null;
+const PROXY_UA_PATTERN = buildUaPattern(CONFIG.proxyUaPatterns);
+
+/**
+ * 非代理词黑名单（来自 config/agent.json 的 proxyUaExcludes）。
+ *
+ * 子串匹配会把 `prestashop`（含 stash）、`myxrayclient`（含 xray）这类
+ * 非代理 UA 误判成客户端，导致它们被原样透传给机场 —— 与「非客户端要回退」
+ * 的设计相反。命中黑名单即判定为非代理客户端。
+ *
+ * 黑名单用**词边界**匹配，避免误伤 `prestashop-clash` 这种真实含客户端名的串。
+ */
+const PROXY_UA_EXCLUDE_PATTERN = (() => {
+	const list = (Array.isArray(CONFIG.proxyUaExcludes) ? CONFIG.proxyUaExcludes : [])
+		.map(p => String(p).trim())
+		.filter(Boolean);
+	if (!list.length) return null;
+	try {
+		return new RegExp(`\\b(${list.map(escapeRegExp).join('|')})\\b`, 'i');
+	} catch (err) {
+		log.warn('UA 黑名单正则构造失败，已忽略', { excludes: list, reason: err.message });
+		return null;
+	}
+})();
 
 /** 调用方 UA 是否来自已知代理客户端 */
 function isProxyClientUA(ua) {
 	const s = String(ua || '').trim();
 	if (!s || isBrowserUA(s)) return false;
-	return PROXY_UA_PATTERN ? PROXY_UA_PATTERN.test(s) : false;
+	if (!PROXY_UA_PATTERN || !PROXY_UA_PATTERN.test(s)) return false;
+	// 命中黑名单 → 不算代理客户端
+	if (PROXY_UA_EXCLUDE_PATTERN && PROXY_UA_EXCLUDE_PATTERN.test(s)) return false;
+	return true;
 }
 
 /** 列出预设（供前端使用） */
@@ -112,6 +166,32 @@ function listPresets() {
 		ua: p.ua,
 		note: p.note || '',
 	}));
+}
+
+/** UA 长度上限：正常客户端 UA 远短于此，超长多半是异常输入 */
+const MAX_UA_LEN = 200;
+
+/**
+ * 清洗最终要发送的 UA。
+ *
+ * 调用方 UA（`?ua=` 或请求头）是外部可控输入：
+ *   - 控制字符（\r \n \t）会让日志被伪造、对端解析异常；
+ *   - **非 ASCII 字符**（如中文）无法编码为 HTTP 头 —— fetch 会直接抛
+ *     `Cannot convert argument to a ByteString`，导致订阅拉取失败。
+ * 真实客户端 UA 都是可打印 ASCII，因此这里只保留 `\x20-\x7e`，其余换成空格，
+ * 并限制长度。保证送出去的一定是单行可打印 ASCII 字符串。
+ *
+ * @returns {string} 清洗后的 UA，全被剥掉时返回空串
+ */
+function sanitizeUa(raw) {
+	return (
+		String(raw == null ? '' : raw)
+			// 非可打印 ASCII（含控制字符、中文等）一律换成空格，避免粘连
+			.replace(/[^\x20-\x7e]+/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim()
+			.slice(0, MAX_UA_LEN)
+	);
 }
 
 /**
@@ -126,10 +206,14 @@ function listPresets() {
  */
 function resolveUserAgent(fetchCfg, callerUA) {
 	const cfg = fetchCfg && typeof fetchCfg === 'object' ? fetchCfg : {};
-	const mode = cfg.userAgent || DEFAULT_UA_ID;
+	// 预设 id 与模式名统一小写比较：用户手改 config.json 时大小写不一致
+	// （如 AUTO / Custom）不应静默降级，否则会丢掉 auto 的透传能力。
+	const mode = String(cfg.userAgent || DEFAULT_UA_ID)
+		.trim()
+		.toLowerCase();
 
 	if (mode === 'custom') {
-		const custom = String(cfg.customUserAgent || '').trim();
+		const custom = sanitizeUa(cfg.customUserAgent);
 		if (custom) return { ua: custom, source: 'config:custom（配置页面手填）' };
 		return {
 			ua: presetUa(DEFAULT_UA_ID) || FALLBACK_UA,
@@ -138,7 +222,7 @@ function resolveUserAgent(fetchCfg, callerUA) {
 	}
 
 	if (mode === 'auto') {
-		const caller = String(callerUA || '').trim();
+		const caller = sanitizeUa(callerUA);
 		// 仅当调用方确实是代理客户端时才透传；浏览器 / curl / node / python 等
 		// 非客户端请求一律回退到默认预设，避免把“非客户端” UA 转给机场。
 		if (isProxyClientUA(caller)) return { ua: caller, source: 'config:auto（透传调用方）' };
@@ -161,10 +245,12 @@ module.exports = {
 	DEFAULT_UA_ID,
 	FALLBACK_UA,
 	PROXY_UA_PATTERN,
+	PROXY_UA_EXCLUDE_PATTERN,
 	getPreset,
 	presetUa,
 	isBrowserUA,
 	isProxyClientUA,
+	sanitizeUa,
 	listPresets,
 	resolveUserAgent,
 };

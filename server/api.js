@@ -1,7 +1,7 @@
 const express = require('express');
 const { fetchSubscription } = require('../src/fetcher');
 const { readConfig, saveConfig } = require('../src/user/user-config');
-const { listPresets, resolveUserAgent } = require('../src/user/user-agents');
+const { listPresets, resolveUserAgent, sanitizeUa } = require('../src/user/user-agents');
 const { parseSubscription, parseSubscriptionList, extractClashDns } = require('../src/parser');
 const { isDomestic, CN_LABEL } = require('../src/proxy-groups');
 const { ruleManager } = require('../src/rule-manager');
@@ -28,7 +28,9 @@ const router = express.Router();
 function uaOptions(req, override) {
 	const { fetch: fetchCfg = {} } = readConfig(guests.guestIdFrom(req));
 	const callerUA = req.get('user-agent') || '';
-	if (override) return { userAgent: override, uaSource: '请求体显式指定' };
+	// override 来自请求体（外部可控），同样清洗后再用
+	const custom = sanitizeUa(override);
+	if (custom) return { userAgent: custom, uaSource: '请求体显式指定' };
 	const resolved = resolveUserAgent(fetchCfg, callerUA);
 	return { userAgent: resolved.ua, uaSource: resolved.source };
 }

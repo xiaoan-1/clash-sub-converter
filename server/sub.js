@@ -4,7 +4,7 @@ const { convertToClash, convertToSurge } = require('../src/converter');
 const { requestSubscription, applySubscriptionHeaders } = require('../src/fetcher');
 const { parseRuleOptions } = require('../src/rule-groups');
 const { readConfig } = require('../src/user/user-config');
-const { resolveUserAgent } = require('../src/user/user-agents');
+const { resolveUserAgent, sanitizeUa } = require('../src/user/user-agents');
 const guests = require('../src/user/guests');
 const logger = require('../src/logger');
 
@@ -60,8 +60,10 @@ router.get('/', async (req, res) => {
 		const callerUA = req.get('user-agent') || '';
 		const { fetch: fetchCfg = {} } = readConfig(scope.guest);
 		// 连同「这个 UA 是怎么定出来的」一起带下去：机场因 UA 不一致作废订阅时靠它定位
-		const uaResolved = ua
-			? { ua, source: '?ua= 显式指定' }
+		// ?ua= 来自查询串（外部可控），同样要过一遍清洗，避免控制字符进日志 / 发给机场
+		const queryUa = sanitizeUa(ua);
+		const uaResolved = queryUa
+			? { ua: queryUa, source: '?ua= 显式指定' }
 			: resolveUserAgent(fetchCfg, callerUA);
 		const fetchOpts = { userAgent: uaResolved.ua, uaSource: uaResolved.source };
 
