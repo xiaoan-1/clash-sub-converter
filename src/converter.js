@@ -120,7 +120,65 @@ function applyNodeFilters(proxies, nodeFilters = {}, excludeKeywords = []) {
 		);
 	}
 
-	return activeProxies;
+	return dedupeAndRenameReserved(activeProxies);
+}
+
+/** 内核内置策略名：节点不能与之同名 */
+const RESERVED_PROXY_NAMES = new Set(['DIRECT', 'REJECT', 'PASS', 'GLOBAL']);
+
+/**
+ * 处理两类会让 mihomo 报错或让节点「选不中」的命名问题。
+ *
+ * 1. 与内置策略同名（`DIRECT` / `REJECT` …）
+ *    候选列表里会同时出现内置策略与这个节点，内核一律解析成内置策略，
+ *    于是该节点永远选不中，而配置看起来完全正常 —— 极难排查。
+ *    重命名成 `DIRECT (节点)` 即可区分。
+ *
+ * 2. 重名
+ *    mihomo 不允许代理重名。单份订阅内部的重名由 parseSubscriptionList 处理，
+ *    但「直接传 proxies 数组」的调用路径（如 API 的 rawContent 经 parser 后）
+ *    不经过那里，所以这里再兜一次，避免漏网。
+ *
+ * @param {Array} proxies
+ * @returns {Array} 处理后的节点（原地修改 name）
+ */
+function dedupeAndRenameReserved(proxies) {
+	const seen = new Set();
+	const renamed = [];
+	const dropped = [];
+
+	const out = proxies.filter(p => {
+		let name = String(p.name || '').trim();
+		if (!name) return true; // 无名节点交给分组阶段兜底，不在这里丢
+
+		if (RESERVED_PROXY_NAMES.has(name.toUpperCase())) {
+			const next = `${name} (节点)`;
+			if (!renamed.some(r => r.from === name)) renamed.push({ from: name, to: next });
+			name = next;
+			p.name = next;
+		}
+
+		if (seen.has(name)) {
+			dropped.push(name);
+			return false;
+		}
+		seen.add(name);
+		return true;
+	});
+
+	if (renamed.length) {
+		log.warn('节点名与内核内置策略重名，已重命名', {
+			count: renamed.length,
+			sample: renamed.slice(0, 5).map(r => `${r.from} → ${r.to}`),
+		});
+	}
+	if (dropped.length) {
+		log.warn('节点重名，已保留先出现的一个', {
+			dropped: dropped.length,
+			sample: dropped.slice(0, 5),
+		});
+	}
+	return out;
 }
 
 /**
@@ -212,11 +270,17 @@ function convertToClash(proxies, options = {}) {
 	});
 
 	// 构建结构化摘要（供前端展示）
+	//
+	// defaultProxy 只对 select 组有意义：Clash 以 proxies[0] 为 select 组的默认出口，
+	// 而 url-test / fallback 由内核按测速或可用性自己挑，没有「默认出口」这一概念。
+	// 早期实现无脑取 proxies[0]，前端于是把测速组的首个节点标成「默认出口」——
+	// 用户以为可以指定，实际改了也不生效。这里改为按类型给出 null，前端据此显示说明。
 	const groupList = proxyGroups.map(g => ({
 		name: g.name,
 		type: g.type,
 		proxies: g.proxies || [],
-		defaultProxy: g.defaultProxy || (g.proxies && g.proxies[0]) || null,
+		defaultProxy:
+			g.type === 'select' ? g.defaultProxy || (g.proxies && g.proxies[0]) || null : null,
 	}));
 
 	// 追加系统规则展示（不可配置）

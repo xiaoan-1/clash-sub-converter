@@ -448,25 +448,23 @@ function showConversionResult(summary) {
 	} else {
 		summary.groups.forEach(function (g, i) {
 			var isSystem = g.type === 'system';
-			// url-test 是测速组，内核自动选最快节点 —— 它没有「默认出口」概念，
-			// 把首项标成默认出口会让人误以为可以指定，必须区分展示。
-			var isUrlTest = g.type === 'url-test';
+			// 只有 select 组才有「默认出口」：url-test 由内核按测速挑，
+			// fallback 按可用性挑，两者都没有可指定的出口。
+			var isSelect = g.type === 'select';
 			var nodeCount = g.proxies ? g.proxies.length : 0;
-			var typeLabel = isSystem ? '系统规则' : isUrlTest ? '⚡ 自动测速' : '👆 手动选择';
+			var typeLabel = isSystem ? '系统规则' : isSelect ? '👆 手动选择' : '⚡ 自动选择';
 			var typeCls =
 				'result-group-type' +
-				(isSystem ? ' result-group-system' : isUrlTest ? ' result-group-urltest' : '');
+				(isSystem ? ' result-group-system' : isSelect ? '' : ' result-group-urltest');
 			var countText = isSystem
 				? ''
 				: '<span style="font-size:12px;color:#bbb">' + nodeCount + ' 节点</span>';
-			// 只有手动选择组才有默认出口；测速组改为一句说明
+			// 默认出口由后端按类型给出（非 select 组为 null），前端不再自己猜
 			var hintText = '';
 			if (!isSystem) {
-				hintText = isUrlTest
-					? '<span class="result-group-hint">自动在组内选延迟最低的节点</span>'
-					: '<span class="result-group-hint">默认出口：' +
-						esc(g.defaultProxy || (g.proxies && g.proxies[0]) || '-') +
-						'</span>';
+				hintText = g.defaultProxy
+					? '<span class="result-group-hint">默认出口：' + esc(g.defaultProxy) + '</span>'
+					: '<span class="result-group-hint">自动在组内选延迟最低的节点</span>';
 			}
 			html +=
 				'<div class="result-group-card">' +
@@ -485,8 +483,8 @@ function showConversionResult(summary) {
 				'</div>' +
 				'<div class="result-group-nodes">';
 			if (g.proxies) {
-				// 仅手动选择组标出默认出口；测速组高亮任意一项都是误导
-				var defaultP = isUrlTest || isSystem ? null : g.defaultProxy || g.proxies[0];
+				// 仅手动选择组标出默认出口；测速 / 兜底组高亮任意一项都是误导
+				var defaultP = isSelect ? g.defaultProxy : null;
 				g.proxies.forEach(function (name) {
 					var cls = 'result-node-tag' + (name === defaultP ? ' result-node-default' : '');
 					html += '<span class="' + cls + '">' + esc(name) + '</span>';
