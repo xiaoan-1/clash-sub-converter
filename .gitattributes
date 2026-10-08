@@ -1,0 +1,13 @@
+# 统一行尾为 LF（与 .prettierrc.json 的 endOfLine: "lf" 保持一致）
+# 否则在 core.autocrlf=true 的 Windows 环境下，检出会把工作区转成 CRLF，
+# 导致 `prettier --check` 反复报错。
+* text=auto eol=lf
+
+# 二进制文件不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

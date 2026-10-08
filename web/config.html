@@ -1,120 +1,179 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>订阅转换 - 配置</title>
-  <!-- 相对路径：无论服务挂在根还是子路径（如 /clash/），都指向服务自己，
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>订阅转换 - 配置</title>
+		<!-- 相对路径：无论服务挂在根还是子路径（如 /clash/），都指向服务自己，
        nginx 只需要一条 location 转发。下同。 -->
-  <link rel="stylesheet" href="./config.css">
-</head>
-<body>
-  <div class="container">
-    <h1>订阅转换配置</h1>
+		<link rel="stylesheet" href="./config.css" />
+	</head>
+	<body>
+		<div class="container">
+			<h1>订阅转换配置</h1>
 
-    <!-- ====== 订阅来源 ====== -->
-    <div class="card">
-      <h2>订阅来源</h2>
-      <div class="segmented" id="sourceMode" style="margin-bottom:12px">
-        <button class="seg-btn active" data-mode="url" onclick="switchSourceMode('url',this)">🔗 链接</button>
-        <button class="seg-btn" data-mode="file" onclick="switchSourceMode('file',this)">📁 文件</button>
-      </div>
+			<!-- ====== 订阅来源 ====== -->
+			<div class="card">
+				<h2>订阅来源</h2>
+				<div class="segmented" id="sourceMode" style="margin-bottom: 12px">
+					<button
+						class="seg-btn active"
+						data-mode="url"
+						onclick="switchSourceMode('url', this)"
+					>
+						🔗 链接
+					</button>
+					<button
+						class="seg-btn"
+						data-mode="file"
+						onclick="switchSourceMode('file', this)"
+					>
+						📁 文件
+					</button>
+				</div>
 
-      <!-- URL 输入区 -->
-      <div id="urlInputArea">
-        <textarea id="subUrls" class="url-textarea" placeholder="每行一个订阅链接&#10;例如：&#10;https://sub1.example.com&#10;https://sub2.example.com" rows="4"></textarea>
-      </div>
+				<!-- URL 输入区 -->
+				<div id="urlInputArea">
+					<textarea
+						id="subUrls"
+						class="url-textarea"
+						placeholder="每行一个订阅链接&#10;例如：&#10;https://sub1.example.com&#10;https://sub2.example.com"
+						rows="4"
+					></textarea>
+				</div>
 
-      <!-- 文件上传区 -->
-      <div id="fileInputArea" class="file-drop-zone" onclick="document.getElementById('fileInput').click()">
-        <div class="file-icon">📂</div>
-        <div class="file-hint">拖拽订阅文件到此处，或 <strong>点击选择文件</strong></div>
-        <div class="file-hint" style="margin-top:4px;font-size:11px">支持 Clash YAML / Base64 订阅格式</div>
-      </div>
-      <input type="file" id="fileInput" class="file-input-hidden" accept=".yaml,.yml,.txt" onchange="handleFileSelect(event)">
+				<!-- 文件上传区 -->
+				<div
+					id="fileInputArea"
+					class="file-drop-zone"
+					onclick="document.getElementById('fileInput').click()"
+				>
+					<div class="file-icon">📂</div>
+					<div class="file-hint">
+						拖拽订阅文件到此处，或 <strong>点击选择文件</strong>
+					</div>
+					<div class="file-hint" style="margin-top: 4px; font-size: 11px">
+						支持 Clash YAML / Base64 订阅格式
+					</div>
+				</div>
+				<input
+					type="file"
+					id="fileInput"
+					class="file-input-hidden"
+					accept=".yaml,.yml,.txt"
+					onchange="handleFileSelect(event)"
+				/>
 
-      <!-- 操作按钮 -->
-      <div class="source-actions">
-        <button class="btn btn-convert" onclick="doConvert()">🔄 转换</button>
-      </div>
-      <div id="convertStatus"></div>
-    </div>
+				<!-- 操作按钮 -->
+				<div class="source-actions">
+					<button class="btn btn-convert" onclick="doConvert()">🔄 转换</button>
+				</div>
+				<div id="convertStatus"></div>
+			</div>
 
-    <!-- ====== Tab 导航 ====== -->
-    <div class="tab-nav">
-      <button class="tab-btn active" data-tab="config" onclick="switchTab('config')">⚙️ 转换配置</button>
-      <button class="tab-btn" data-tab="result" onclick="switchTab('result')">📋 转换结果</button>
-    </div>
+			<!-- ====== Tab 导航 ====== -->
+			<div class="tab-nav">
+				<button class="tab-btn active" data-tab="config" onclick="switchTab('config')">
+					⚙️ 转换配置
+				</button>
+				<button class="tab-btn" data-tab="result" onclick="switchTab('result')">
+					📋 转换结果
+				</button>
+			</div>
 
-    <!-- ====== Tab: 转换配置 ====== -->
-    <div class="tab-panel active" id="tabConfig">
-      <!-- 自动保存状态：配置改动即时写回配置文件，无需手动保存 -->
-      <div class="card-save-bar">
-        <span class="bar-desc">配置改动即时生效，自动保存，无需手动操作</span>
-        <span id="scopeLabel" class="scope-label"></span>
-        <span id="saveStatus" class="autosave-state">正在加载配置…</span>
-      </div>
+			<!-- ====== Tab: 转换配置 ====== -->
+			<div class="tab-panel active" id="tabConfig">
+				<!-- 自动保存状态：配置改动即时写回配置文件，无需手动保存 -->
+				<div class="card-save-bar">
+					<span class="bar-desc">配置改动即时生效，自动保存，无需手动操作</span>
+					<span id="scopeLabel" class="scope-label"></span>
+					<span id="saveStatus" class="autosave-state">正在加载配置…</span>
+				</div>
 
-      <!-- 节点过滤（合并过滤 + 排除关键词） -->
-      <div class="card">
-        <h2>节点过滤</h2>
-        <div class="segmented" id="filterSeg" style="margin-bottom:14px">
-          <button class="seg-btn active" data-val="all" onclick="setFilter('all')">全部节点</button>
-          <button class="seg-btn" data-val="hideDomestic" onclick="setFilter('hideDomestic')">隐藏国内</button>
-          <button class="seg-btn" data-val="hideInternational" onclick="setFilter('hideInternational')">隐藏国际</button>
-        </div>
+				<!-- 节点过滤（合并过滤 + 排除关键词） -->
+				<div class="card">
+					<h2>节点过滤</h2>
+					<div class="segmented" id="filterSeg" style="margin-bottom: 14px">
+						<button class="seg-btn active" data-val="all" onclick="setFilter('all')">
+							全部节点
+						</button>
+						<button
+							class="seg-btn"
+							data-val="hideDomestic"
+							onclick="setFilter('hideDomestic')"
+						>
+							隐藏国内
+						</button>
+						<button
+							class="seg-btn"
+							data-val="hideInternational"
+							onclick="setFilter('hideInternational')"
+						>
+							隐藏国际
+						</button>
+					</div>
 
-        <h3>排除关键词</h3>
-        <div class="kw-hint">名称含以下关键词的节点将被移除</div>
-        <div class="kw-tags" id="kwTags"></div>
-        <div class="kw-input-row">
-          <input type="text" id="kwInput" placeholder="输入关键词，按回车添加" onkeydown="if(event.key==='Enter')addKeyword()">
-          <button class="btn btn-primary btn-sm" onclick="addKeyword()">添加</button>
-        </div>
-        <div class="kw-hint">常用屏蔽：</div>
-        <div class="kw-presets" id="kwPresets"></div>
-      </div>
+					<h3>排除关键词</h3>
+					<div class="kw-hint">名称含以下关键词的节点将被移除</div>
+					<div class="kw-tags" id="kwTags"></div>
+					<div class="kw-input-row">
+						<input
+							type="text"
+							id="kwInput"
+							placeholder="输入关键词，按回车添加"
+							onkeydown="if (event.key === 'Enter') addKeyword();"
+						/>
+						<button class="btn btn-primary btn-sm" onclick="addKeyword()">添加</button>
+					</div>
+					<div class="kw-hint">常用屏蔽：</div>
+					<div class="kw-presets" id="kwPresets"></div>
+				</div>
 
-      <!-- 订阅拉取设置 -->
-      <div class="card">
-        <h2>订阅拉取设置</h2>
-        <div class="kw-hint">
-          转换器代拉订阅时发送的客户端标识（User-Agent）。若与实际客户端不一致，
-          机场可能判定为「非本人操作 / 订阅地址泄漏」而作废订阅地址。
-        </div>
-        <div class="ua-row">
-          <label class="ua-label" for="uaSelect">客户端标识</label>
-          <select id="uaSelect" class="group-select" onchange="onUaChange()"></select>
-        </div>
-        <div class="kw-hint" id="uaNote"></div>
-        <div class="kw-input-row" id="uaCustomRow" style="display:none">
-          <input type="text" id="uaCustomInput" placeholder="例如：clash-verge/v2.0.0" oninput="onUaCustomInput()">
-        </div>
-      </div>
+				<!-- 订阅拉取设置 -->
+				<div class="card">
+					<h2>订阅拉取设置</h2>
+					<div class="kw-hint">
+						转换器代拉订阅时发送的客户端标识（User-Agent）。若与实际客户端不一致，
+						机场可能判定为「非本人操作 / 订阅地址泄漏」而作废订阅地址。
+					</div>
+					<div class="ua-row">
+						<label class="ua-label" for="uaSelect">客户端标识</label>
+						<select id="uaSelect" class="group-select" onchange="onUaChange()"></select>
+					</div>
+					<div class="kw-hint" id="uaNote"></div>
+					<div class="kw-input-row" id="uaCustomRow" style="display: none">
+						<input
+							type="text"
+							id="uaCustomInput"
+							placeholder="例如：clash-verge/v2.0.0"
+							oninput="onUaCustomInput()"
+						/>
+					</div>
+				</div>
 
-      <!-- 分组配置 -->
-      <div class="card">
-        <h2>分组配置</h2>
-        <div id="groupsList"></div>
-      </div>
-    </div>
+				<!-- 分组配置 -->
+				<div class="card">
+					<h2>分组配置</h2>
+					<div id="groupsList"></div>
+				</div>
+			</div>
 
-    <!-- ====== Tab: 转换结果 ====== -->
-    <div class="tab-panel" id="tabResult">
-      <!-- 下载配置（置顶） -->
-      <div class="card-save-bar" id="downloadBar">
-        <span class="bar-desc">转换完成后可在此下载生成的 Clash 配置文件</span>
-        <button class="btn btn-download" onclick="downloadYaml()">⬇ 下载配置</button>
-      </div>
-      <div class="card" id="resultCard">
-        <h2>转换结果</h2>
-        <div id="resultContent">
-          <div class="empty-hint">请先输入订阅链接并点击"转换"</div>
-        </div>
-      </div>
-    </div>
-  </div>
+			<!-- ====== Tab: 转换结果 ====== -->
+			<div class="tab-panel" id="tabResult">
+				<!-- 下载配置（置顶） -->
+				<div class="card-save-bar" id="downloadBar">
+					<span class="bar-desc">转换完成后可在此下载生成的 Clash 配置文件</span>
+					<button class="btn btn-download" onclick="downloadYaml()">⬇ 下载配置</button>
+				</div>
+				<div class="card" id="resultCard">
+					<h2>转换结果</h2>
+					<div id="resultContent">
+						<div class="empty-hint">请先输入订阅链接并点击"转换"</div>
+					</div>
+				</div>
+			</div>
+		</div>
 
-  <script src="./config.js"></script>
-</body>
+		<script src="./config.js"></script>
+	</body>
 </html>

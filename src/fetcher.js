@@ -9,14 +9,14 @@
 const { resolveUserAgent, FALLBACK_UA } = require('./user/user-agents');
 const logger = require('./logger');
 const {
-  readSubHeader,
-  parseUserInfo,
-  mergeUserInfo,
-  formatUserInfo,
-  sanitizeHomeUrl,
-  parseUpdateInterval,
-  parseFileName,
-  buildContentDisposition,
+	readSubHeader,
+	parseUserInfo,
+	mergeUserInfo,
+	formatUserInfo,
+	sanitizeHomeUrl,
+	parseUpdateInterval,
+	parseFileName,
+	buildContentDisposition,
 } = require('./utils/subscription-meta');
 
 const log = logger.create('fetch');
@@ -40,12 +40,12 @@ const MAX_PREVIEW_SOURCE_BYTES = logger.MAX_PREVIEW_SOURCE_BYTES;
  * 这里顺着 cause 链扫一遍，两者都认。
  */
 function isTimeoutError(err) {
-  for (let e = err, depth = 0; e && depth < 4; e = e.cause, depth++) {
-    const name = String(e.name || '');
-    if (name === 'TimeoutError' || name === 'AbortError') return true;
-    if (String(e.code || '') === 'UND_ERR_ABORTED') return true;
-  }
-  return false;
+	for (let e = err, depth = 0; e && depth < 4; e = e.cause, depth++) {
+		const name = String(e.name || '');
+		if (name === 'TimeoutError' || name === 'AbortError') return true;
+		if (String(e.code || '') === 'UND_ERR_ABORTED') return true;
+	}
+	return false;
 }
 
 /**
@@ -56,33 +56,33 @@ function isTimeoutError(err) {
  * 这比状态码本身有用得多。正文统一过 preview() 脱敏 + 截断。
  */
 async function describeHttpFailure(response) {
-  const headers = response.headers;
-  const out = {
-    'content-type': headers.get('content-type') || '-',
-    reason: `HTTP ${response.status}${response.statusText ? ' ' + response.statusText : ''}`,
-    hint: logger.httpHint(response.status),
-    // 以下头部用于判断「是谁返回的这个错误」：CDN 拦截或机场自己的错误页
-    server: headers.get('server') || undefined,
-    'cf-ray': headers.get('cf-ray') || undefined,
-    via: headers.get('via') || undefined,
-    'www-authenticate': headers.get('www-authenticate') || undefined,
-    'retry-after': headers.get('retry-after') || undefined,
-    location: headers.get('location') || undefined,
-  };
+	const headers = response.headers;
+	const out = {
+		'content-type': headers.get('content-type') || '-',
+		reason: `HTTP ${response.status}${response.statusText ? ' ' + response.statusText : ''}`,
+		hint: logger.httpHint(response.status),
+		// 以下头部用于判断「是谁返回的这个错误」：CDN 拦截或机场自己的错误页
+		server: headers.get('server') || undefined,
+		'cf-ray': headers.get('cf-ray') || undefined,
+		via: headers.get('via') || undefined,
+		'www-authenticate': headers.get('www-authenticate') || undefined,
+		'retry-after': headers.get('retry-after') || undefined,
+		location: headers.get('location') || undefined,
+	};
 
-  const declared = Number(headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > MAX_PREVIEW_SOURCE_BYTES) {
-    return { ...out, body: `(响应体 ${logger.formatBytes(declared)}，过大未读取)` };
-  }
+	const declared = Number(headers.get('content-length'));
+	if (Number.isFinite(declared) && declared > MAX_PREVIEW_SOURCE_BYTES) {
+		return { ...out, body: `(响应体 ${logger.formatBytes(declared)}，过大未读取)` };
+	}
 
-  try {
-    const text = await response.text();
-    out['body-bytes'] = logger.formatBytes(Buffer.byteLength(text, 'utf-8'));
-    out.body = logger.preview(text, 200) || '(空)';
-  } catch (err) {
-    out.body = `(读取响应体失败：${err.message})`;
-  }
-  return out;
+	try {
+		const text = await response.text();
+		out['body-bytes'] = logger.formatBytes(Buffer.byteLength(text, 'utf-8'));
+		out.body = logger.preview(text, 200) || '(空)';
+	} catch (err) {
+		out.body = `(读取响应体失败：${err.message})`;
+	}
+	return out;
 }
 
 /**
@@ -97,146 +97,150 @@ async function describeHttpFailure(response) {
  * @returns {Promise<{text:string,userInfo:Object|null,homeUrl:string,updateInterval:string,fileName:string}>}
  */
 async function requestSubscription(url, options = {}) {
-  let ua = options.userAgent;
-  let uaSource = options.uaSource;
-  if (!ua) {
-    // 调用方未预先算 UA 时的兜底，顺带取回「这个 UA 是哪来的」供日志使用
-    const resolved = resolveUserAgent(options.fetchCfg || {}, options.callerUA || '');
-    ua = resolved.ua;
-    uaSource = resolved.source;
-  }
-  ua = ua || DEFAULT_FETCH_UA;
-  uaSource = uaSource || '未标注';
+	let ua = options.userAgent;
+	let uaSource = options.uaSource;
+	if (!ua) {
+		// 调用方未预先算 UA 时的兜底，顺带取回「这个 UA 是哪来的」供日志使用
+		const resolved = resolveUserAgent(options.fetchCfg || {}, options.callerUA || '');
+		ua = resolved.ua;
+		uaSource = resolved.source;
+	}
+	ua = ua || DEFAULT_FETCH_UA;
+	uaSource = uaSource || '未标注';
 
-  const safe = logger.safeUrl(url);
-  const host = logger.hostOf(url);
-  const t = logger.timer();
+	const safe = logger.safeUrl(url);
+	const host = logger.hostOf(url);
+	const t = logger.timer();
 
-  // 「用什么去订阅的」：UA 是机场风控的第一道门槛，UV 报 403 时先看这行
-  log.debug('发起订阅请求', {
-    method: 'GET',
-    url: safe,
-    host,
-    ua,
-    'ua-source': uaSource,
-    accept: '*/*',
-    timeout: logger.formatMs(SUBSCRIBE_TIMEOUT_MS),
-    redirect: 'follow',
-  });
+	// 「用什么去订阅的」：UA 是机场风控的第一道门槛，UV 报 403 时先看这行
+	log.debug('发起订阅请求', {
+		method: 'GET',
+		url: safe,
+		host,
+		ua,
+		'ua-source': uaSource,
+		accept: '*/*',
+		timeout: logger.formatMs(SUBSCRIBE_TIMEOUT_MS),
+		redirect: 'follow',
+	});
 
-  let response;
-  try {
-    response = await fetch(url, {
-      headers: { 'User-Agent': ua, 'Accept': '*/*' },
-      signal: AbortSignal.timeout(SUBSCRIBE_TIMEOUT_MS)
-    });
-  } catch (err) {
-    // 超时 / DNS / TLS / 连接被拒都在这里。区分超时与其他，排查方向完全不同
-    const timeout = isTimeoutError(err);
-    const d = logger.describeError(err);
-    const hint = timeout
-      ? '只有这一个订阅超时 → 多半是机场侧问题；所有订阅都超时 → 检查本机网络 / DNS / 代理。'
-      : '连接阶段就失败，说明还没到机场的鉴权环节：先确认订阅域名能 ping 通 / 能解析。';
-    log.warn('拉取订阅失败：请求未能完成', {
-      url: safe,
-      host,
-      ua,
-      'ua-source': uaSource,
-      dur: t.text(),
-      'fail-stage': timeout ? 'timeout' : 'connect',
-      reason: timeout ? `超时（${logger.formatMs(SUBSCRIBE_TIMEOUT_MS)} 内未拿到响应）` : d.reason,
-      'net-code': d['net-code'],
-      'net-cause': d['net-cause'],
-      'net-detail': d['net-detail'],
-      'net-hint': d['net-hint'] || (timeout ? '对端在超时时间内未响应：机场侧慢或被网络阻断' : undefined),
-      hint,
-    });
-    // 把翻译结果挂到异常上，供上层（/sub、/api/convert）汇总时复用：
-    // Node fetch 的原始错误码在 err.cause 里，上层直接读 err.code 只会拿到空值
-    err.netCode = d['net-code'];
-    err.hint = err.hint || hint;
-    err.stage = timeout ? 'timeout' : 'connect';
-    // 上层汇总用这句，而不是 undici 那句英文的 aborted due to timeout
-    err.failReason = timeout
-      ? `超时（${logger.formatMs(SUBSCRIBE_TIMEOUT_MS)} 内未拿到响应）`
-      : err.message;
-    throw err;
-  }
+	let response;
+	try {
+		response = await fetch(url, {
+			headers: { 'User-Agent': ua, Accept: '*/*' },
+			signal: AbortSignal.timeout(SUBSCRIBE_TIMEOUT_MS),
+		});
+	} catch (err) {
+		// 超时 / DNS / TLS / 连接被拒都在这里。区分超时与其他，排查方向完全不同
+		const timeout = isTimeoutError(err);
+		const d = logger.describeError(err);
+		const hint = timeout
+			? '只有这一个订阅超时 → 多半是机场侧问题；所有订阅都超时 → 检查本机网络 / DNS / 代理。'
+			: '连接阶段就失败，说明还没到机场的鉴权环节：先确认订阅域名能 ping 通 / 能解析。';
+		log.warn('拉取订阅失败：请求未能完成', {
+			url: safe,
+			host,
+			ua,
+			'ua-source': uaSource,
+			dur: t.text(),
+			'fail-stage': timeout ? 'timeout' : 'connect',
+			reason: timeout
+				? `超时（${logger.formatMs(SUBSCRIBE_TIMEOUT_MS)} 内未拿到响应）`
+				: d.reason,
+			'net-code': d['net-code'],
+			'net-cause': d['net-cause'],
+			'net-detail': d['net-detail'],
+			'net-hint':
+				d['net-hint'] ||
+				(timeout ? '对端在超时时间内未响应：机场侧慢或被网络阻断' : undefined),
+			hint,
+		});
+		// 把翻译结果挂到异常上，供上层（/sub、/api/convert）汇总时复用：
+		// Node fetch 的原始错误码在 err.cause 里，上层直接读 err.code 只会拿到空值
+		err.netCode = d['net-code'];
+		err.hint = err.hint || hint;
+		err.stage = timeout ? 'timeout' : 'connect';
+		// 上层汇总用这句，而不是 undici 那句英文的 aborted due to timeout
+		err.failReason = timeout
+			? `超时（${logger.formatMs(SUBSCRIBE_TIMEOUT_MS)} 内未拿到响应）`
+			: err.message;
+		throw err;
+	}
 
-  // HTTP 层失败：带上状态行、关键响应头与正文摘要。
-  // 机场的「token 失效 / 订阅过期 / 请求过于频繁」通常直接写在正文里。
-  if (!response.ok) {
-    const meta = await describeHttpFailure(response);
-    log.warn('拉取订阅失败：服务端返回错误状态码', {
-      url: safe,
-      host,
-      ua,
-      'ua-source': uaSource,
-      dur: t.text(),
-      'fail-stage': 'http',
-      status: response.status,
-      'status-text': response.statusText || '-',
-      server: meta.server,
-      'cf-ray': meta['cf-ray'],
-      via: meta.via,
-      'www-authenticate': meta['www-authenticate'],
-      'retry-after': meta['retry-after'],
-      location: meta.location,
-      'content-type': meta['content-type'],
-      'body-bytes': meta['body-bytes'],
-      'response-body': meta.body,
-      reason: meta.reason,
-      hint: meta.hint,
-    });
+	// HTTP 层失败：带上状态行、关键响应头与正文摘要。
+	// 机场的「token 失效 / 订阅过期 / 请求过于频繁」通常直接写在正文里。
+	if (!response.ok) {
+		const meta = await describeHttpFailure(response);
+		log.warn('拉取订阅失败：服务端返回错误状态码', {
+			url: safe,
+			host,
+			ua,
+			'ua-source': uaSource,
+			dur: t.text(),
+			'fail-stage': 'http',
+			status: response.status,
+			'status-text': response.statusText || '-',
+			server: meta.server,
+			'cf-ray': meta['cf-ray'],
+			via: meta.via,
+			'www-authenticate': meta['www-authenticate'],
+			'retry-after': meta['retry-after'],
+			location: meta.location,
+			'content-type': meta['content-type'],
+			'body-bytes': meta['body-bytes'],
+			'response-body': meta.body,
+			reason: meta.reason,
+			hint: meta.hint,
+		});
 
-    // 把诊断信息挂到异常上，供上层（/sub、/api/convert）汇总时复用
-    const e = new Error(`HTTP ${response.status}`);
-    e.status = response.status;
-    e.statusText = response.statusText || '';
-    e.responseBody = meta.body;
-    e.hint = meta.hint;
-    e.stage = 'http';
-    e.failReason = meta.reason;
-    throw e;
-  }
+		// 把诊断信息挂到异常上，供上层（/sub、/api/convert）汇总时复用
+		const e = new Error(`HTTP ${response.status}`);
+		e.status = response.status;
+		e.statusText = response.statusText || '';
+		e.responseBody = meta.body;
+		e.hint = meta.hint;
+		e.stage = 'http';
+		e.failReason = meta.reason;
+		throw e;
+	}
 
-  const headers = response.headers;
-  const text = await response.text();
+	const headers = response.headers;
+	const text = await response.text();
 
-  const userInfo = parseUserInfo(readSubHeader(headers, 'subscription-userinfo'));
-  const homeUrl = sanitizeHomeUrl(readSubHeader(headers, 'profile-web-page-url'));
-  const updateInterval = parseUpdateInterval(readSubHeader(headers, 'profile-update-interval'));
-  const fileName = parseFileName(readSubHeader(headers, 'content-disposition'));
+	const userInfo = parseUserInfo(readSubHeader(headers, 'subscription-userinfo'));
+	const homeUrl = sanitizeHomeUrl(readSubHeader(headers, 'profile-web-page-url'));
+	const updateInterval = parseUpdateInterval(readSubHeader(headers, 'profile-update-interval'));
+	const fileName = parseFileName(readSubHeader(headers, 'content-disposition'));
 
-  log.info('拉取订阅成功', {
-    url: safe,
-    host,
-    ua,
-    'ua-source': uaSource,
-    dur: t.text(),
-    status: response.status,
-    'content-type': headers.get('content-type') || '-',
-    bytes: logger.formatBytes(Buffer.byteLength(text, 'utf-8')),
-    // age>0 表示这次命中了 CDN 缓存，拿到的是旧订阅，可解释「订阅没更新」
-    'cdn-cache': headers.get('cf-cache-status') || headers.get('x-cache') || undefined,
-    age: headers.get('age') || undefined,
-  });
+	log.info('拉取订阅成功', {
+		url: safe,
+		host,
+		ua,
+		'ua-source': uaSource,
+		dur: t.text(),
+		status: response.status,
+		'content-type': headers.get('content-type') || '-',
+		bytes: logger.formatBytes(Buffer.byteLength(text, 'utf-8')),
+		// age>0 表示这次命中了 CDN 缓存，拿到的是旧订阅，可解释「订阅没更新」
+		'cdn-cache': headers.get('cf-cache-status') || headers.get('x-cache') || undefined,
+		age: headers.get('age') || undefined,
+	});
 
-  // 机场元信息逐项记录：客户端「订阅详情」空白时，靠这几行判断是机场没下发还是本地没转发
-  log.debug('订阅元信息', {
-    url: safe,
-    userinfo: userInfo ? formatUserInfo(userInfo) : '(无)',
-    homeUrl: homeUrl || '(无)',
-    interval: updateInterval || '(无)',
-    fileName: fileName || '(无)',
-  });
+	// 机场元信息逐项记录：客户端「订阅详情」空白时，靠这几行判断是机场没下发还是本地没转发
+	log.debug('订阅元信息', {
+		url: safe,
+		userinfo: userInfo ? formatUserInfo(userInfo) : '(无)',
+		homeUrl: homeUrl || '(无)',
+		interval: updateInterval || '(无)',
+		fileName: fileName || '(无)',
+	});
 
-  return { text, userInfo, homeUrl, updateInterval, fileName };
+	return { text, userInfo, homeUrl, updateInterval, fileName };
 }
 
 /** 只需订阅正文时的便捷包装 */
 async function fetchSubscription(url, options = {}) {
-  return (await requestSubscription(url, options)).text;
+	return (await requestSubscription(url, options)).text;
 }
 
 /**
@@ -250,56 +254,57 @@ async function fetchSubscription(url, options = {}) {
  * @param {Array} metas - requestSubscription 的返回值列表
  */
 function applySubscriptionHeaders(res, metas) {
-  const list = (metas || []).filter(Boolean);
-  if (!list.length) {
-    log.debug('无需转发订阅信息：没有成功拉取到的订阅元信息');
-    return;
-  }
+	const list = (metas || []).filter(Boolean);
+	if (!list.length) {
+		log.debug('无需转发订阅信息：没有成功拉取到的订阅元信息');
+		return;
+	}
 
-  const userInfo = mergeUserInfo(list.map(m => m.userInfo));
-  if (userInfo) res.setHeader('subscription-userinfo', formatUserInfo(userInfo));
+	const userInfo = mergeUserInfo(list.map(m => m.userInfo));
+	if (userInfo) res.setHeader('subscription-userinfo', formatUserInfo(userInfo));
 
-  // 多订阅时以下三项只取第一份非空的：把「取自哪一份」一并记下，
-  // 否则订阅名/官网与用户预期不符时无从判断是不是取错了源。
-  const pickFirst = (key) => {
-    const idx = list.findIndex(m => m[key]);
-    return idx < 0 ? '' : list[idx][key];
-  };
-  const homeUrl = pickFirst('homeUrl');
-  if (homeUrl) res.setHeader('profile-web-page-url', homeUrl);
+	// 多订阅时以下三项只取第一份非空的：把「取自哪一份」一并记下，
+	// 否则订阅名/官网与用户预期不符时无从判断是不是取错了源。
+	const pickFirst = key => {
+		const idx = list.findIndex(m => m[key]);
+		return idx < 0 ? '' : list[idx][key];
+	};
+	const homeUrl = pickFirst('homeUrl');
+	if (homeUrl) res.setHeader('profile-web-page-url', homeUrl);
 
-  const interval = pickFirst('updateInterval');
-  if (interval) res.setHeader('profile-update-interval', interval);
+	const interval = pickFirst('updateInterval');
+	if (interval) res.setHeader('profile-update-interval', interval);
 
-  const fileName = pickFirst('fileName');
-  if (fileName) {
-    try {
-      res.setHeader('Content-Disposition', buildContentDisposition(fileName));
-    } catch {
-      // 文件名含响应头不支持的字符时跳过，不影响正文
-    }
-  }
+	const fileName = pickFirst('fileName');
+	if (fileName) {
+		try {
+			res.setHeader('Content-Disposition', buildContentDisposition(fileName));
+		} catch {
+			// 文件名含响应头不支持的字符时跳过，不影响正文
+		}
+	}
 
-  log.debug('订阅信息转发结果', {
-    sources: list.length,
-    userinfo: userInfo ? formatUserInfo(userInfo) : '(机场未下发)',
-    homeUrl: homeUrl || '(无)',
-    interval: interval || '(无)',
-    fileName: fileName || '(无)',
-    // 多订阅时注明各项取自第几份，便于对照订阅名/官网是否来自预期的那一份
-    pickedFrom: list.length > 1
-      ? {
-          homeUrl: homeUrl ? list.findIndex(m => m.homeUrl) + 1 : undefined,
-          interval: interval ? list.findIndex(m => m.updateInterval) + 1 : undefined,
-          fileName: fileName ? list.findIndex(m => m.fileName) + 1 : undefined,
-        }
-      : undefined,
-  });
+	log.debug('订阅信息转发结果', {
+		sources: list.length,
+		userinfo: userInfo ? formatUserInfo(userInfo) : '(机场未下发)',
+		homeUrl: homeUrl || '(无)',
+		interval: interval || '(无)',
+		fileName: fileName || '(无)',
+		// 多订阅时注明各项取自第几份，便于对照订阅名/官网是否来自预期的那一份
+		pickedFrom:
+			list.length > 1
+				? {
+						homeUrl: homeUrl ? list.findIndex(m => m.homeUrl) + 1 : undefined,
+						interval: interval ? list.findIndex(m => m.updateInterval) + 1 : undefined,
+						fileName: fileName ? list.findIndex(m => m.fileName) + 1 : undefined,
+					}
+				: undefined,
+	});
 }
 
 module.exports = {
-  requestSubscription,
-  fetchSubscription,
-  applySubscriptionHeaders,
-  SUBSCRIBE_TIMEOUT_MS,
+	requestSubscription,
+	fetchSubscription,
+	applySubscriptionHeaders,
+	SUBSCRIBE_TIMEOUT_MS,
 };

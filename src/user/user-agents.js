@@ -37,29 +37,29 @@ const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'agent.json');
 
 /** 内置兜底，配置文件缺失/损坏时使用 */
 const BUILTIN = {
-  defaultId: 'clash-verge',
-  fallbackUa: 'clash-verge/v2.0.0',
-  proxyUaPatterns: [],
-  presets: [],
+	defaultId: 'clash-verge',
+	fallbackUa: 'clash-verge/v2.0.0',
+	proxyUaPatterns: [],
+	presets: [],
 };
 
 /** 读取并校验配置，异常时回退内置值 */
 function loadConfig() {
-  try {
-    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    return {
-      defaultId: raw.defaultId || BUILTIN.defaultId,
-      fallbackUa: raw.fallbackUa || BUILTIN.fallbackUa,
-      proxyUaPatterns: Array.isArray(raw.proxyUaPatterns) ? raw.proxyUaPatterns : [],
-      presets: Array.isArray(raw.presets) ? raw.presets.filter(p => p && p.id) : [],
-    };
-  } catch (err) {
-    log.warn('UA 预设配置读取失败，已回退内置默认值', {
-      path: CONFIG_PATH,
-      reason: err.message,
-    });
-    return { ...BUILTIN };
-  }
+	try {
+		const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+		return {
+			defaultId: raw.defaultId || BUILTIN.defaultId,
+			fallbackUa: raw.fallbackUa || BUILTIN.fallbackUa,
+			proxyUaPatterns: Array.isArray(raw.proxyUaPatterns) ? raw.proxyUaPatterns : [],
+			presets: Array.isArray(raw.presets) ? raw.presets.filter(p => p && p.id) : [],
+		};
+	} catch (err) {
+		log.warn('UA 预设配置读取失败，已回退内置默认值', {
+			path: CONFIG_PATH,
+			reason: err.message,
+		});
+		return { ...BUILTIN };
+	}
 }
 
 const CONFIG = loadConfig();
@@ -72,18 +72,18 @@ const PRESET_MAP = new Map(UA_PRESETS.map(p => [p.id, p]));
 
 /** 按 id 取预设 */
 function getPreset(id) {
-  return PRESET_MAP.get(id) || null;
+	return PRESET_MAP.get(id) || null;
 }
 
 /** 取某个预设的 UA 字符串（auto / custom 返回空） */
 function presetUa(id) {
-  const p = getPreset(id);
-  return p && p.ua ? p.ua : '';
+	const p = getPreset(id);
+	return p && p.ua ? p.ua : '';
 }
 
 /** 是否是浏览器 UA */
 function isBrowserUA(ua) {
-  return /^Mozilla\//i.test(String(ua || '').trim());
+	return /^Mozilla\//i.test(String(ua || '').trim());
 }
 
 /**
@@ -93,19 +93,25 @@ function isBrowserUA(ua) {
  * `python-requests` 这类通用 UA 转发给机场，在机场看来更像“订阅地址泄漏”。
  */
 const PROXY_UA_PATTERN = CONFIG.proxyUaPatterns.length
-  ? new RegExp(CONFIG.proxyUaPatterns.join('|'), 'i')
-  : null;
+	? new RegExp(CONFIG.proxyUaPatterns.join('|'), 'i')
+	: null;
 
 /** 调用方 UA 是否来自已知代理客户端 */
 function isProxyClientUA(ua) {
-  const s = String(ua || '').trim();
-  if (!s || isBrowserUA(s)) return false;
-  return PROXY_UA_PATTERN ? PROXY_UA_PATTERN.test(s) : false;
+	const s = String(ua || '').trim();
+	if (!s || isBrowserUA(s)) return false;
+	return PROXY_UA_PATTERN ? PROXY_UA_PATTERN.test(s) : false;
 }
 
 /** 列出预设（供前端使用） */
 function listPresets() {
-  return UA_PRESETS.map(p => ({ id: p.id, name: p.name, platform: p.platform, ua: p.ua, note: p.note || '' }));
+	return UA_PRESETS.map(p => ({
+		id: p.id,
+		name: p.name,
+		platform: p.platform,
+		ua: p.ua,
+		note: p.note || '',
+	}));
 }
 
 /**
@@ -119,46 +125,46 @@ function listPresets() {
  * @returns {{ua:string, source:string}}
  */
 function resolveUserAgent(fetchCfg, callerUA) {
-  const cfg = fetchCfg && typeof fetchCfg === 'object' ? fetchCfg : {};
-  const mode = cfg.userAgent || DEFAULT_UA_ID;
+	const cfg = fetchCfg && typeof fetchCfg === 'object' ? fetchCfg : {};
+	const mode = cfg.userAgent || DEFAULT_UA_ID;
 
-  if (mode === 'custom') {
-    const custom = String(cfg.customUserAgent || '').trim();
-    if (custom) return { ua: custom, source: 'config:custom（配置页面手填）' };
-    return {
-      ua: presetUa(DEFAULT_UA_ID) || FALLBACK_UA,
-      source: `config:custom 但未填写，已回退 ${DEFAULT_UA_ID}`,
-    };
-  }
+	if (mode === 'custom') {
+		const custom = String(cfg.customUserAgent || '').trim();
+		if (custom) return { ua: custom, source: 'config:custom（配置页面手填）' };
+		return {
+			ua: presetUa(DEFAULT_UA_ID) || FALLBACK_UA,
+			source: `config:custom 但未填写，已回退 ${DEFAULT_UA_ID}`,
+		};
+	}
 
-  if (mode === 'auto') {
-    const caller = String(callerUA || '').trim();
-    // 仅当调用方确实是代理客户端时才透传；浏览器 / curl / node / python 等
-    // 非客户端请求一律回退到默认预设，避免把“非客户端” UA 转给机场。
-    if (isProxyClientUA(caller)) return { ua: caller, source: 'config:auto（透传调用方）' };
-    return {
-      ua: presetUa(DEFAULT_UA_ID) || FALLBACK_UA,
-      source: `config:auto（调用方「${caller || '空'}」不是代理客户端，回退 ${DEFAULT_UA_ID}）`,
-    };
-  }
+	if (mode === 'auto') {
+		const caller = String(callerUA || '').trim();
+		// 仅当调用方确实是代理客户端时才透传；浏览器 / curl / node / python 等
+		// 非客户端请求一律回退到默认预设，避免把“非客户端” UA 转给机场。
+		if (isProxyClientUA(caller)) return { ua: caller, source: 'config:auto（透传调用方）' };
+		return {
+			ua: presetUa(DEFAULT_UA_ID) || FALLBACK_UA,
+			source: `config:auto（调用方「${caller || '空'}」不是代理客户端，回退 ${DEFAULT_UA_ID}）`,
+		};
+	}
 
-  const ua = presetUa(mode);
-  if (ua) return { ua, source: `config:${mode}（预设）` };
-  return {
-    ua: presetUa(DEFAULT_UA_ID) || FALLBACK_UA,
-    source: `config:${mode} 不是有效预设，已回退 ${DEFAULT_UA_ID}`,
-  };
+	const ua = presetUa(mode);
+	if (ua) return { ua, source: `config:${mode}（预设）` };
+	return {
+		ua: presetUa(DEFAULT_UA_ID) || FALLBACK_UA,
+		source: `config:${mode} 不是有效预设，已回退 ${DEFAULT_UA_ID}`,
+	};
 }
 
 module.exports = {
-  UA_PRESETS,
-  DEFAULT_UA_ID,
-  FALLBACK_UA,
-  PROXY_UA_PATTERN,
-  getPreset,
-  presetUa,
-  isBrowserUA,
-  isProxyClientUA,
-  listPresets,
-  resolveUserAgent,
+	UA_PRESETS,
+	DEFAULT_UA_ID,
+	FALLBACK_UA,
+	PROXY_UA_PATTERN,
+	getPreset,
+	presetUa,
+	isBrowserUA,
+	isProxyClientUA,
+	listPresets,
+	resolveUserAgent,
 };

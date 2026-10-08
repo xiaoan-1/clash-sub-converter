@@ -8,32 +8,164 @@
     "hideInternational": false
   },
   "excludeKeywords": [
-    "流量", "官网", "套餐", "到期", "剩余", "应急", "免费", "测试",
-    "失效", "过期", "活动", "优惠", "推荐", "广告", "回国", "禁止",
-    "ipv6", "中转", "隧道", "倍率", "专线", "-----"
+    "流量",
+    "官网",
+    "套餐",
+    "到期",
+    "剩余",
+    "应急",
+    "免费",
+    "测试",
+    "失效",
+    "过期",
+    "活动",
+    "优惠",
+    "推荐",
+    "广告",
+    "回国",
+    "禁止",
+    "ipv6",
+    "中转",
+    "隧道",
+    "倍率",
+    "专线",
+    "-----"
   ],
   "groups": [
-    { "builtin": "select",    "name": "🚀 节点选择",  "type": "select",   "defaultProxy": "♻️ 自动选择" },
-    { "builtin": "auto",      "name": "♻️ 自动选择",  "type": "url-test", "defaultProxy": "♻️ 自动选择" },
-    { "builtin": "domestic",  "name": "🇨🇳 中国大陆", "type": "select",   "enabled": true, "defaultProxy": "DIRECT" },
-    { "builtin": "regions",   "name": "🌏 地区分组",   "type": "url-test", "enabled": true },
-    { "ruleId": "apple",      "name": "🍎 Apple 服务",   "type": "select", "enabled": true, "defaultProxy": "DIRECT" },
-    { "ruleId": "microsoft",  "name": "Ⓜ️ 微软服务",    "type": "select", "enabled": true, "defaultProxy": "DIRECT" },
-    { "ruleId": "bahamut",    "name": "🎮 巴哈姆特",    "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "bilibili",   "name": "📺 哔哩哔哩",    "type": "select", "enabled": true, "defaultProxy": "DIRECT" },
-    { "ruleId": "claude",     "name": "🤖 Claude",      "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "dazn",       "name": "📺 Dazn",         "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "disney",     "name": "🎥 Disney+",      "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "gemini",     "name": "🤖 Gemini",       "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "github",     "name": "⌨️ GitHub",       "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "mihoyo",     "name": "⭕️💰 miHoYo",    "type": "select", "enabled": true, "defaultProxy": "DIRECT" },
-    { "ruleId": "netflix",    "name": "🎬 Netflix",      "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "openai",     "name": "🤖 OpenAI",       "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "telegram",   "name": "💬 Telegram",     "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "youtube",    "name": "📺 YouTube",      "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "pixiv",      "name": "🎨 Pixiv",        "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "steam-store",   "name": "🎮 Steam 商店/社区", "type": "select", "enabled": true, "defaultProxy": "♻️ 自动选择" },
-    { "ruleId": "steam-download","name": "🎮 Steam 下载/联机", "type": "select", "enabled": true, "defaultProxy": "DIRECT" },
-    { "builtin": "fallback",  "name": "🐟 漏网之鱼",   "type": "select",   "defaultProxy": "🚀 节点选择" }
+    { "builtin": "select", "name": "🚀 节点选择", "type": "select", "defaultProxy": "♻️ 自动选择" },
+    { "builtin": "auto", "name": "♻️ 自动选择", "type": "url-test", "defaultProxy": "♻️ 自动选择" },
+    {
+      "builtin": "domestic",
+      "name": "🇨🇳 中国大陆",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "DIRECT"
+    },
+    { "builtin": "regions", "name": "🌏 地区分组", "type": "url-test", "enabled": true },
+    {
+      "ruleId": "apple",
+      "name": "🍎 Apple 服务",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "DIRECT"
+    },
+    {
+      "ruleId": "microsoft",
+      "name": "Ⓜ️ 微软服务",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "DIRECT"
+    },
+    {
+      "ruleId": "bahamut",
+      "name": "🎮 巴哈姆特",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "bilibili",
+      "name": "📺 哔哩哔哩",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "DIRECT"
+    },
+    {
+      "ruleId": "claude",
+      "name": "🤖 Claude",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "dazn",
+      "name": "📺 Dazn",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "disney",
+      "name": "🎥 Disney+",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "gemini",
+      "name": "🤖 Gemini",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "github",
+      "name": "⌨️ GitHub",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "mihoyo",
+      "name": "⭕️💰 miHoYo",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "DIRECT"
+    },
+    {
+      "ruleId": "netflix",
+      "name": "🎬 Netflix",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "openai",
+      "name": "🤖 OpenAI",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "telegram",
+      "name": "💬 Telegram",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "youtube",
+      "name": "📺 YouTube",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "pixiv",
+      "name": "🎨 Pixiv",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "steam-store",
+      "name": "🎮 Steam 商店/社区",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "♻️ 自动选择"
+    },
+    {
+      "ruleId": "steam-download",
+      "name": "🎮 Steam 下载/联机",
+      "type": "select",
+      "enabled": true,
+      "defaultProxy": "DIRECT"
+    },
+    {
+      "builtin": "fallback",
+      "name": "🐟 漏网之鱼",
+      "type": "select",
+      "defaultProxy": "🚀 节点选择"
+    }
   ]
 }

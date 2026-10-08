@@ -7,30 +7,31 @@
  * 格式: socks5://user:pass@server:port?params#name
  */
 function parseSocks(link) {
-  const url = new URL(link);
-  const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
+	const url = new URL(link);
+	const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
 
-  const proxy = {
-    name,
-    type: 'socks5',
-    server: url.hostname,
-    port: parseInt(url.port),
-    udp: true
-  };
+	const proxy = {
+		name,
+		type: 'socks5',
+		server: url.hostname,
+		port: parseInt(url.port),
+		udp: true,
+	};
 
-  if (url.username) proxy.username = decodeURIComponent(url.username);
-  if (url.password) proxy.password = decodeURIComponent(url.password);
+	if (url.username) proxy.username = decodeURIComponent(url.username);
+	if (url.password) proxy.password = decodeURIComponent(url.password);
 
-  const tls = url.searchParams.get('tls');
-  if (tls === '1' || tls === 'true') proxy.tls = true;
+	const tls = url.searchParams.get('tls');
+	if (tls === '1' || tls === 'true') proxy.tls = true;
 
-  const sni = url.searchParams.get('sni');
-  if (sni) proxy.sni = sni;
+	const sni = url.searchParams.get('sni');
+	if (sni) proxy.sni = sni;
 
-  const skipCert = url.searchParams.get('skip-cert-verify') || url.searchParams.get('allowInsecure');
-  if (skipCert === '1' || skipCert === 'true') proxy['skip-cert-verify'] = true;
+	const skipCert =
+		url.searchParams.get('skip-cert-verify') || url.searchParams.get('allowInsecure');
+	if (skipCert === '1' || skipCert === 'true') proxy['skip-cert-verify'] = true;
 
-  return proxy;
+	return proxy;
 }
 
 /**
@@ -39,33 +40,36 @@ function parseSocks(link) {
  *       https://user:pass@server:port?tls=true#name
  */
 function parseHttp(link) {
-  const url = new URL(link);
-  const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port || (url.protocol === 'https:' ? 443 : 80)}`;
+	const url = new URL(link);
+	const name =
+		decodeURIComponent(url.hash.substring(1)) ||
+		`${url.hostname}:${url.port || (url.protocol === 'https:' ? 443 : 80)}`;
 
-  const proxy = {
-    name,
-    type: 'http',
-    server: url.hostname,
-    port: parseInt(url.port || (url.protocol === 'https:' ? 443 : 80)),
-    udp: true
-  };
+	const proxy = {
+		name,
+		type: 'http',
+		server: url.hostname,
+		port: parseInt(url.port || (url.protocol === 'https:' ? 443 : 80)),
+		udp: true,
+	};
 
-  if (url.username) proxy.username = decodeURIComponent(url.username);
-  if (url.password) proxy.password = decodeURIComponent(url.password);
+	if (url.username) proxy.username = decodeURIComponent(url.username);
+	if (url.password) proxy.password = decodeURIComponent(url.password);
 
-  // https:// 前缀默认 TLS
-  if (url.protocol === 'https:') proxy.tls = true;
+	// https:// 前缀默认 TLS
+	if (url.protocol === 'https:') proxy.tls = true;
 
-  const tls = url.searchParams.get('tls');
-  if (tls === '1' || tls === 'true') proxy.tls = true;
+	const tls = url.searchParams.get('tls');
+	if (tls === '1' || tls === 'true') proxy.tls = true;
 
-  const sni = url.searchParams.get('sni');
-  if (sni) proxy.sni = sni;
+	const sni = url.searchParams.get('sni');
+	if (sni) proxy.sni = sni;
 
-  const skipCert = url.searchParams.get('skip-cert-verify') || url.searchParams.get('allowInsecure');
-  if (skipCert === '1' || skipCert === 'true') proxy['skip-cert-verify'] = true;
+	const skipCert =
+		url.searchParams.get('skip-cert-verify') || url.searchParams.get('allowInsecure');
+	if (skipCert === '1' || skipCert === 'true') proxy['skip-cert-verify'] = true;
 
-  return proxy;
+	return proxy;
 }
 
 module.exports = { parseSocks, parseHttp };

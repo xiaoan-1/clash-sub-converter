@@ -1,103 +1,244 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenClash 订阅转换服务</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 40px 20px; }
-    .container { max-width: 720px; margin: 0 auto; }
-    h1 { color: #58a6ff; margin-bottom: 12px; }
-    .subtitle { color: #8b949e; margin-bottom: 30px; }
-    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 24px; margin: 16px 0; }
-    h2 { color: #79c0ff; margin-bottom: 12px; font-size: 18px; }
-    code { background: #1f2937; padding: 2px 8px; border-radius: 4px; font-family: 'Fira Code', monospace; font-size: 14px; color: #7ee787; }
-    .url-box { background: #1f2937; padding: 14px 18px; border-radius: 6px; margin: 12px 0; font-family: monospace; font-size: 14px; word-break: break-all; border-left: 3px solid #58a6ff; }
-    table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #30363d; font-size: 14px; }
-    th { color: #8b949e; }
-    .step { display: flex; gap: 12px; margin: 12px 0; }
-    .step-num { background: #238636; color: #fff; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
-    .step-content { padding-top: 3px; }
-    .tip { background: #1c2128; border-left: 3px solid #d29922; padding: 12px 16px; border-radius: 4px; margin-top: 16px; font-size: 14px; color: #e3b341; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>🚀 OpenClash 订阅转换服务</h1>
-    <p class="subtitle">兼容 subconverter API，专为 OpenClash 设计的轻量订阅转换服务</p>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>OpenClash 订阅转换服务</title>
+		<style>
+			* {
+				margin: 0;
+				padding: 0;
+				box-sizing: border-box;
+			}
+			body {
+				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+				background: #0d1117;
+				color: #c9d1d9;
+				padding: 40px 20px;
+			}
+			.container {
+				max-width: 720px;
+				margin: 0 auto;
+			}
+			h1 {
+				color: #58a6ff;
+				margin-bottom: 12px;
+			}
+			.subtitle {
+				color: #8b949e;
+				margin-bottom: 30px;
+			}
+			.card {
+				background: #161b22;
+				border: 1px solid #30363d;
+				border-radius: 8px;
+				padding: 24px;
+				margin: 16px 0;
+			}
+			h2 {
+				color: #79c0ff;
+				margin-bottom: 12px;
+				font-size: 18px;
+			}
+			code {
+				background: #1f2937;
+				padding: 2px 8px;
+				border-radius: 4px;
+				font-family: 'Fira Code', monospace;
+				font-size: 14px;
+				color: #7ee787;
+			}
+			.url-box {
+				background: #1f2937;
+				padding: 14px 18px;
+				border-radius: 6px;
+				margin: 12px 0;
+				font-family: monospace;
+				font-size: 14px;
+				word-break: break-all;
+				border-left: 3px solid #58a6ff;
+			}
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				margin: 12px 0;
+			}
+			th,
+			td {
+				text-align: left;
+				padding: 8px 12px;
+				border-bottom: 1px solid #30363d;
+				font-size: 14px;
+			}
+			th {
+				color: #8b949e;
+			}
+			.step {
+				display: flex;
+				gap: 12px;
+				margin: 12px 0;
+			}
+			.step-num {
+				background: #238636;
+				color: #fff;
+				width: 28px;
+				height: 28px;
+				border-radius: 50%;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-size: 14px;
+				flex-shrink: 0;
+			}
+			.step-content {
+				padding-top: 3px;
+			}
+			.tip {
+				background: #1c2128;
+				border-left: 3px solid #d29922;
+				padding: 12px 16px;
+				border-radius: 4px;
+				margin-top: 16px;
+				font-size: 14px;
+				color: #e3b341;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<h1>🚀 OpenClash 订阅转换服务</h1>
+			<p class="subtitle">兼容 subconverter API，专为 OpenClash 设计的轻量订阅转换服务</p>
 
-    <div class="card">
-      <h2>📡 转换端点</h2>
-      <div class="url-box">GET /sub?url=<strong>{订阅链接}</strong>&target=clash</div>
-      <p style="font-size: 14px; color: #8b949e;">返回完整的 Clash / Surge YAML 配置</p>
-    </div>
+			<div class="card">
+				<h2>📡 转换端点</h2>
+				<div class="url-box">GET /sub?url=<strong>{订阅链接}</strong>&target=clash</div>
+				<p style="font-size: 14px; color: #8b949e">返回完整的 Clash / Surge YAML 配置</p>
+			</div>
 
-    <div class="card">
-      <h2>⚙️ 支持参数</h2>
-      <table>
-        <tr><th>参数</th><th>说明</th><th>示例</th></tr>
-        <tr><td><code>url</code></td><td>订阅链接（必填，多个用 <code>|</code> 分隔）</td><td><code>https://sub.example.com</code></td></tr>
-        <tr><td><code>target</code></td><td>输出格式</td><td><code>clash</code> / <code>surge</code></td></tr>
-        <tr><td><code>include</code></td><td>包含的规则组（正则）</td><td><code>(?i)telegram|openai</code></td></tr>
-        <tr><td><code>exclude</code></td><td>排除的规则组（正则）</td><td><code>(?i)netflix</code></td></tr>
-        <tr><td><code>emoji</code></td><td>节点名添加 Emoji</td><td><code>true</code></td></tr>
-        <tr><td><code>udp</code></td><td>启用 UDP 转发</td><td><code>true</code></td></tr>
-        <tr><td><code>scv</code></td><td>跳过证书验证</td><td><code>true</code></td></tr>
-        <tr><td><code>sort</code></td><td>节点排序</td><td><code>true</code></td></tr>
-        <tr><td><code>ua</code></td><td>拉取订阅时使用的 UA（默认透传调用方的客户端 UA）</td><td><code>clash-verge/v2.0.0</code></td></tr>
-      </table>
-      <p style="font-size: 13px; color: #8b949e; margin-top: 12px;">
-        ⚠️ 机场会校验拉取订阅的客户端标识。若与你的实际客户端不一致，可能被判定为「非本人操作」而作废订阅地址。
-        可在 <a href="./cfg">配置界面</a> → 订阅拉取设置中调整。
-      </p>
-      <p style="font-size: 13px; color: #8b949e; margin-top: 8px;">
-        ✅ 机场下发的订阅信息（已用 / 总流量、到期时间、官网入口、订阅名称）会随响应头一并转发，<br>
-        Clash Verge / ClashX 等客户端的订阅详情页可正常显示。
-      </p>
-    </div>
+			<div class="card">
+				<h2>⚙️ 支持参数</h2>
+				<table>
+					<tr>
+						<th>参数</th>
+						<th>说明</th>
+						<th>示例</th>
+					</tr>
+					<tr>
+						<td><code>url</code></td>
+						<td>订阅链接（必填，多个用 <code>|</code> 分隔）</td>
+						<td><code>https://sub.example.com</code></td>
+					</tr>
+					<tr>
+						<td><code>target</code></td>
+						<td>输出格式</td>
+						<td><code>clash</code> / <code>surge</code></td>
+					</tr>
+					<tr>
+						<td><code>include</code></td>
+						<td>包含的规则组（正则）</td>
+						<td><code>(?i)telegram|openai</code></td>
+					</tr>
+					<tr>
+						<td><code>exclude</code></td>
+						<td>排除的规则组（正则）</td>
+						<td><code>(?i)netflix</code></td>
+					</tr>
+					<tr>
+						<td><code>emoji</code></td>
+						<td>节点名添加 Emoji</td>
+						<td><code>true</code></td>
+					</tr>
+					<tr>
+						<td><code>udp</code></td>
+						<td>启用 UDP 转发</td>
+						<td><code>true</code></td>
+					</tr>
+					<tr>
+						<td><code>scv</code></td>
+						<td>跳过证书验证</td>
+						<td><code>true</code></td>
+					</tr>
+					<tr>
+						<td><code>sort</code></td>
+						<td>节点排序</td>
+						<td><code>true</code></td>
+					</tr>
+					<tr>
+						<td><code>ua</code></td>
+						<td>拉取订阅时使用的 UA（默认透传调用方的客户端 UA）</td>
+						<td><code>clash-verge/v2.0.0</code></td>
+					</tr>
+				</table>
+				<p style="font-size: 13px; color: #8b949e; margin-top: 12px">
+					⚠️
+					机场会校验拉取订阅的客户端标识。若与你的实际客户端不一致，可能被判定为「非本人操作」而作废订阅地址。
+					可在 <a href="./cfg">配置界面</a> → 订阅拉取设置中调整。
+				</p>
+				<p style="font-size: 13px; color: #8b949e; margin-top: 8px">
+					✅ 机场下发的订阅信息（已用 /
+					总流量、到期时间、官网入口、订阅名称）会随响应头一并转发，<br />
+					Clash Verge / ClashX 等客户端的订阅详情页可正常显示。
+				</p>
+			</div>
 
-    <div class="card">
-      <h2>🔧 OpenClash 配置步骤</h2>
-      <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-content">进入 OpenClash → <strong>订阅编辑</strong> → 添加订阅</div>
-      </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-content">勾选 <strong>在线订阅转换</strong></div>
-      </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-content">转换地址填写：<code id="sub-url">http://你的地址/sub</code></div>
-      </div>
-      <div class="step">
-        <div class="step-num">4</div>
-        <div class="step-content">订阅地址填写你的机场链接，保存并更新</div>
-      </div>
-      <div class="tip">
-        💡 本服务会自动完成节点解析、地区分组、分流规则配置，无需手动设置模板。
-      </div>
-    </div>
+			<div class="card">
+				<h2>🔧 OpenClash 配置步骤</h2>
+				<div class="step">
+					<div class="step-num">1</div>
+					<div class="step-content">
+						进入 OpenClash → <strong>订阅编辑</strong> → 添加订阅
+					</div>
+				</div>
+				<div class="step">
+					<div class="step-num">2</div>
+					<div class="step-content">勾选 <strong>在线订阅转换</strong></div>
+				</div>
+				<div class="step">
+					<div class="step-num">3</div>
+					<div class="step-content">
+						转换地址填写：<code id="sub-url">http://你的地址/sub</code>
+					</div>
+				</div>
+				<div class="step">
+					<div class="step-num">4</div>
+					<div class="step-content">订阅地址填写你的机场链接，保存并更新</div>
+				</div>
+				<div class="tip">
+					💡 本服务会自动完成节点解析、地区分组、分流规则配置，无需手动设置模板。
+				</div>
+			</div>
 
-    <div class="card">
-      <h2>📋 内置规则组</h2>
-      <table>
-        <tr><td><code>telegram</code></td><td><code>openai</code></td><td><code>youtube</code></td><td><code>netflix</code></td></tr>
-        <tr><td><code>disney</code></td><td><code>dazn</code></td><td><code>bahamut</code></td><td><code>bilibili</code></td></tr>
-        <tr><td><code>github</code></td><td><code>mihoyo</code></td><td colspan="2" style="color:#8b949e">+ 20+ 地区自动分组</td></tr>
-      </table>
-    </div>
-  </div>
+			<div class="card">
+				<h2>📋 内置规则组</h2>
+				<table>
+					<tr>
+						<td><code>telegram</code></td>
+						<td><code>openai</code></td>
+						<td><code>youtube</code></td>
+						<td><code>netflix</code></td>
+					</tr>
+					<tr>
+						<td><code>disney</code></td>
+						<td><code>dazn</code></td>
+						<td><code>bahamut</code></td>
+						<td><code>bilibili</code></td>
+					</tr>
+					<tr>
+						<td><code>github</code></td>
+						<td><code>mihoyo</code></td>
+						<td colspan="2" style="color: #8b949e">+ 20+ 地区自动分组</td>
+					</tr>
+				</table>
+			</div>
+		</div>
 
-  <script>
-    // 转换地址按【当前访问地址】自动拼接：无论服务挂在域名根下还是子路径（如 /clash/），
-    // 这里显示的都是实际可用的地址，不用手改。
-    if (location.protocol !== 'file:') {
-      const base = location.pathname.replace(/\/+$/, ''); // '' 或 '/clash'
-      document.getElementById('sub-url').textContent = location.origin + base + '/sub';
-    }
-  </script>
-</body>
+		<script>
+			// 转换地址按【当前访问地址】自动拼接：无论服务挂在域名根下还是子路径（如 /clash/），
+			// 这里显示的都是实际可用的地址，不用手改。
+			if (location.protocol !== 'file:') {
+				const base = location.pathname.replace(/\/+$/, ''); // '' 或 '/clash'
+				document.getElementById('sub-url').textContent = location.origin + base + '/sub';
+			}
+		</script>
+	</body>
 </html>

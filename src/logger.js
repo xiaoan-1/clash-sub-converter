@@ -33,8 +33,10 @@ const ERR_LOG = path.join(LOG_DIR, 'error.log');
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
 
 const pickLevelName = (raw, fallback) => {
-  const name = String(raw || '').trim().toLowerCase();
-  return LEVELS[name] !== undefined ? name : fallback;
+	const name = String(raw || '')
+		.trim()
+		.toLowerCase();
+	return LEVELS[name] !== undefined ? name : fallback;
 };
 
 /**
@@ -65,42 +67,46 @@ const MAX_PREVIEW_SOURCE_BYTES = 1024 * 1024;
 // ===================== 无状态纯函数 =====================
 
 function timestamp() {
-  const d = new Date();
-  const p = (n, w = 2) => String(n).padStart(w, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
-    + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+	const d = new Date();
+	const p = (n, w = 2) => String(n).padStart(w, '0');
+	return (
+		`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+		`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`
+	);
 }
 
 function truncate(s) {
-  return s.length > MAX_VALUE_LEN ? `${s.slice(0, MAX_VALUE_LEN)}…(共 ${s.length} 字符)` : s;
+	return s.length > MAX_VALUE_LEN ? `${s.slice(0, MAX_VALUE_LEN)}…(共 ${s.length} 字符)` : s;
 }
 
 /** 把任意值格式化成单行、可 grep 的短字符串 */
 function fmtValue(v) {
-  if (v === null) return 'null';
-  if (v === undefined) return 'undefined';
-  if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') return String(v);
-  if (Array.isArray(v)) {
-    const shown = v.slice(0, MAX_ARRAY_ITEMS).map(x => (typeof x === 'string' ? x : JSON.stringify(x)));
-    const rest = v.length - shown.length;
-    return `[${shown.join(', ')}${rest > 0 ? `, …+${rest}` : ''}](${v.length})`;
-  }
-  if (typeof v === 'object') {
-    try {
-      return truncate(JSON.stringify(v));
-    } catch {
-      return '[不可序列化]';
-    }
-  }
-  // 字符串：折叠换行，避免一条日志占多行
-  return truncate(String(v).replace(/\s+/g, ' '));
+	if (v === null) return 'null';
+	if (v === undefined) return 'undefined';
+	if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') return String(v);
+	if (Array.isArray(v)) {
+		const shown = v
+			.slice(0, MAX_ARRAY_ITEMS)
+			.map(x => (typeof x === 'string' ? x : JSON.stringify(x)));
+		const rest = v.length - shown.length;
+		return `[${shown.join(', ')}${rest > 0 ? `, …+${rest}` : ''}](${v.length})`;
+	}
+	if (typeof v === 'object') {
+		try {
+			return truncate(JSON.stringify(v));
+		} catch {
+			return '[不可序列化]';
+		}
+	}
+	// 字符串：折叠换行，避免一条日志占多行
+	return truncate(String(v).replace(/\s+/g, ' '));
 }
 
 function stackOf(err) {
-  if (!err || !err.stack) return undefined;
-  // 只保留前几帧，够定位即可
-  const lines = String(err.stack).split('\n').slice(0, 6).join(' <- ');
-  return truncate(lines.replace(/\s+/g, ' '));
+	if (!err || !err.stack) return undefined;
+	// 只保留前几帧，够定位即可
+	const lines = String(err.stack).split('\n').slice(0, 6).join(' <- ');
+	return truncate(lines.replace(/\s+/g, ' '));
 }
 
 /** 看起来像凭据的键名（查询串 / JSON / kv 三种形态共用） */
@@ -110,15 +116,15 @@ const RE_SECRET_QUERY = new RegExp(`([?&](?:${SECRET_KEYS})=)[^&#\\s]*`, 'gi');
 // 注意 JSON 里键名的闭合引号在冒号**之前**，所以 `("|')?` 要出现两次；
 // 引号（$2/$4）保留，只把值换成 ***，保证 JSON 预览仍是合法片段。
 const RE_SECRET_KV = new RegExp(
-  `\\b(${SECRET_KEYS})("|')?(\\s*[=:]\\s*)("|')?(?!\\*{3})[^\\s,;"'\\\\}?&#/|]+`,
-  'gi'
+	`\\b(${SECRET_KEYS})("|')?(\\s*[=:]\\s*)("|')?(?!\\*{3})[^\\s,;"'\\\\}?&#/|]+`,
+	'gi',
 );
 
 /** 把文本里形如 token=xxx / "password":"xxx" 的凭据值抹成 *** */
 function redactSecrets(raw) {
-  return String(raw === null || raw === undefined ? '' : raw)
-    .replace(RE_SECRET_QUERY, '$1***')
-    .replace(RE_SECRET_KV, '$1$2$3$4***');
+	return String(raw === null || raw === undefined ? '' : raw)
+		.replace(RE_SECRET_QUERY, '$1***')
+		.replace(RE_SECRET_KV, '$1$2$3$4***');
 }
 
 /**
@@ -129,15 +135,15 @@ function redactSecrets(raw) {
  * 但正文也可能夹带 token，所以统一过一遍 redactSecrets。
  */
 function preview(raw, limit = MAX_PREVIEW_LEN) {
-  if (raw === null || raw === undefined) return '';
-  const text = String(raw);
-  if (!text) return '(空)';
-  // 压缩 / 二进制内容（gzip 未被 fetch 解开、或对端返回了图片）肉眼不可读
-  if (/[\u0000-\u0008\u000e-\u001f]/.test(text)) return '(二进制内容，已省略)';
+	if (raw === null || raw === undefined) return '';
+	const text = String(raw);
+	if (!text) return '(空)';
+	// 压缩 / 二进制内容（gzip 未被 fetch 解开、或对端返回了图片）肉眼不可读
+	if (/[\u0000-\u0008\u000e-\u001f]/.test(text)) return '(二进制内容，已省略)';
 
-  const flat = redactSecrets(text).replace(/\s+/g, ' ').trim();
-  if (!flat) return '(空白内容)';
-  return truncate(flat.length > limit ? `${flat.slice(0, limit)}…` : flat);
+	const flat = redactSecrets(text).replace(/\s+/g, ' ').trim();
+	if (!flat) return '(空白内容)';
+	return truncate(flat.length > limit ? `${flat.slice(0, limit)}…` : flat);
 }
 
 /**
@@ -148,25 +154,25 @@ function preview(raw, limit = MAX_PREVIEW_LEN) {
  * 完全无法判断是 DNS 问题、证书问题，还是机场风控主动断开。
  */
 const NET_HINTS = {
-  ENOTFOUND: '域名解析失败：DNS 查不到该主机，检查订阅地址是否写错',
-  EAI_AGAIN: 'DNS 临时故障：解析超时，通常是本机 DNS 或网络问题',
-  ECONNREFUSED: '连接被拒绝：对端未在该端口监听，或被防火墙拦截',
-  ECONNRESET: '连接被重置：对端主动断开，常见于代理 / 机场风控',
-  ETIMEDOUT: 'TCP 连接超时：网络不通或对端无响应',
-  EPIPE: '连接被对端关闭',
-  EHOSTUNREACH: '主机不可达：路由问题',
-  ENETUNREACH: '网络不可达：本机没有到该网段的路由',
-  CERT_HAS_EXPIRED: 'TLS 证书已过期',
-  DEPTH_ZERO_SELF_SIGNED_CERT: 'TLS 自签名证书：对端证书不被信任',
-  UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'TLS 证书链无法验证：缺中间证书，或链路上有 MITM 代理',
-  UNABLE_TO_GET_ISSUER_CERT_LOCALLY: 'TLS 缺少根证书：系统 CA 不完整',
-  ERR_TLS_CERT_ALTNAME_INVALID: 'TLS 证书域名不匹配：可能被中间人代理',
-  ERR_SSL_WRONG_VERSION_NUMBER: 'TLS 握手失败：该端口可能不是 HTTPS',
-  UND_ERR_CONNECT_TIMEOUT: '建立连接超时：对端不可达',
-  UND_ERR_HEADERS_TIMEOUT: '等待响应头超时：已连上但对端不返回数据',
-  UND_ERR_BODY_TIMEOUT: '读取响应正文超时',
-  UND_ERR_SOCKET: '连接异常中断',
-  UND_ERR_ABORTED: '请求被中止（通常是超时触发）',
+	ENOTFOUND: '域名解析失败：DNS 查不到该主机，检查订阅地址是否写错',
+	EAI_AGAIN: 'DNS 临时故障：解析超时，通常是本机 DNS 或网络问题',
+	ECONNREFUSED: '连接被拒绝：对端未在该端口监听，或被防火墙拦截',
+	ECONNRESET: '连接被重置：对端主动断开，常见于代理 / 机场风控',
+	ETIMEDOUT: 'TCP 连接超时：网络不通或对端无响应',
+	EPIPE: '连接被对端关闭',
+	EHOSTUNREACH: '主机不可达：路由问题',
+	ENETUNREACH: '网络不可达：本机没有到该网段的路由',
+	CERT_HAS_EXPIRED: 'TLS 证书已过期',
+	DEPTH_ZERO_SELF_SIGNED_CERT: 'TLS 自签名证书：对端证书不被信任',
+	UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'TLS 证书链无法验证：缺中间证书，或链路上有 MITM 代理',
+	UNABLE_TO_GET_ISSUER_CERT_LOCALLY: 'TLS 缺少根证书：系统 CA 不完整',
+	ERR_TLS_CERT_ALTNAME_INVALID: 'TLS 证书域名不匹配：可能被中间人代理',
+	ERR_SSL_WRONG_VERSION_NUMBER: 'TLS 握手失败：该端口可能不是 HTTPS',
+	UND_ERR_CONNECT_TIMEOUT: '建立连接超时：对端不可达',
+	UND_ERR_HEADERS_TIMEOUT: '等待响应头超时：已连上但对端不返回数据',
+	UND_ERR_BODY_TIMEOUT: '读取响应正文超时',
+	UND_ERR_SOCKET: '连接异常中断',
+	UND_ERR_ABORTED: '请求被中止（通常是超时触发）',
 };
 
 /**
@@ -176,72 +182,72 @@ const NET_HINTS = {
  * 必须靠 cause 才能看到 ENOTFOUND / ECONNREFUSED / UND_ERR_* 这些真正的错误码。
  */
 function describeError(err) {
-  if (!err) return {};
-  const out = { reason: String(err.message || err) };
-  if (err.code) out.code = String(err.code);
+	if (!err) return {};
+	const out = { reason: String(err.message || err) };
+	if (err.code) out.code = String(err.code);
 
-  const chain = [];
-  const codes = [];
-  const details = [];
+	const chain = [];
+	const codes = [];
+	const details = [];
 
-  for (let cur = err.cause, depth = 0; cur && depth < 4; cur = cur.cause, depth++) {
-    const head = cur.code || (cur.name && cur.name !== 'Error' ? cur.name : '');
-    chain.push([head, cur.message].filter(Boolean).join(' ') || String(cur));
-    if (cur.code) codes.push(String(cur.code));
-    // syscall / 地址等定位信息（不同 Node 版本挂的层级不同，收集第一个命中的）
-    if (!details.length && (cur.syscall || cur.hostname || cur.address)) {
-      const parts = [];
-      if (cur.syscall) parts.push(`syscall=${cur.syscall}`);
-      if (cur.hostname) parts.push(`host=${cur.hostname}`);
-      if (cur.address) parts.push(`addr=${cur.address}${cur.port ? ':' + cur.port : ''}`);
-      details.push(parts.join(' '));
-    }
-  }
+	for (let cur = err.cause, depth = 0; cur && depth < 4; cur = cur.cause, depth++) {
+		const head = cur.code || (cur.name && cur.name !== 'Error' ? cur.name : '');
+		chain.push([head, cur.message].filter(Boolean).join(' ') || String(cur));
+		if (cur.code) codes.push(String(cur.code));
+		// syscall / 地址等定位信息（不同 Node 版本挂的层级不同，收集第一个命中的）
+		if (!details.length && (cur.syscall || cur.hostname || cur.address)) {
+			const parts = [];
+			if (cur.syscall) parts.push(`syscall=${cur.syscall}`);
+			if (cur.hostname) parts.push(`host=${cur.hostname}`);
+			if (cur.address) parts.push(`addr=${cur.address}${cur.port ? ':' + cur.port : ''}`);
+			details.push(parts.join(' '));
+		}
+	}
 
-  if (chain.length) out['net-cause'] = chain.join(' → ');
-  if (details.length) out['net-detail'] = details[0];
+	if (chain.length) out['net-cause'] = chain.join(' → ');
+	if (details.length) out['net-detail'] = details[0];
 
-  const netCode = codes[0];
-  if (netCode) {
-    out['net-code'] = netCode;
-    const hint = NET_HINTS[netCode];
-    if (hint) out['net-hint'] = hint;
-  }
-  return out;
+	const netCode = codes[0];
+	if (netCode) {
+		out['net-code'] = netCode;
+		const hint = NET_HINTS[netCode];
+		if (hint) out['net-hint'] = hint;
+	}
+	return out;
 }
 
 /** 从 URL 里取 host（含端口），取不到时返回 '-' */
 function hostOf(raw) {
-  try {
-    return new URL(String(raw)).host || '-';
-  } catch {
-    return '-';
-  }
+	try {
+		return new URL(String(raw)).host || '-';
+	} catch {
+		return '-';
+	}
 }
 
 /**
  * HTTP 状态码 → 排查建议。订阅拉取失败时跟着日志一起打出。
  */
 const HTTP_HINTS = {
-  400: '请求被拒：订阅地址参数不完整或被改写',
-  401: '未授权：token 无效或已过期',
-  403: '禁止访问：订阅地址已失效，或拉取所用 UA 被机场安全规则拦截',
-  404: '找不到该地址：订阅路径写错，或订阅已被机场删除',
-  406: '对端不接受本次请求：UA / Accept 头被识别为异常客户端',
-  429: '请求过于频繁：被机场限流，稍后重试',
-  451: '因法律原因不可用：该订阅在当前地区被限制',
-  500: '机场服务端错误：与本地无关，联系机场',
-  502: '网关错误：机场上游异常',
-  503: '服务不可用：机场维护或过载',
-  504: '网关超时：机场上游超时',
+	400: '请求被拒：订阅地址参数不完整或被改写',
+	401: '未授权：token 无效或已过期',
+	403: '禁止访问：订阅地址已失效，或拉取所用 UA 被机场安全规则拦截',
+	404: '找不到该地址：订阅路径写错，或订阅已被机场删除',
+	406: '对端不接受本次请求：UA / Accept 头被识别为异常客户端',
+	429: '请求过于频繁：被机场限流，稍后重试',
+	451: '因法律原因不可用：该订阅在当前地区被限制',
+	500: '机场服务端错误：与本地无关，联系机场',
+	502: '网关错误：机场上游异常',
+	503: '服务不可用：机场维护或过载',
+	504: '网关超时：机场上游超时',
 };
 
 function httpHint(status) {
-  const s = Number(status);
-  if (HTTP_HINTS[s]) return HTTP_HINTS[s];
-  if (s >= 500) return '机场服务端错误：与本地无关';
-  if (s >= 400) return '请求被拒绝：订阅地址可能已失效';
-  return undefined;
+	const s = Number(status);
+	if (HTTP_HINTS[s]) return HTTP_HINTS[s];
+	if (s >= 500) return '机场服务端错误：与本地无关';
+	if (s >= 400) return '请求被拒绝：订阅地址可能已失效';
+	return undefined;
 }
 
 /**
@@ -250,52 +256,52 @@ function httpHint(status) {
  * 抹掉 userinfo、常见凭据参数、以及路径里的长随机串（订阅路径本身就是凭据）。
  */
 function safeUrl(raw) {
-  let s = String(raw === null || raw === undefined ? '' : raw);
-  if (!s) return '(空)';
-  // https://user:pass@host/... → https://host/...
-  s = s.replace(/\/\/[^@/]*@/g, '//');
-  // ?token=xxx&code=yyy → ?token=***&code=***
-  s = redactSecrets(s);
-  // /AbCd1234...(≥24 位) → /***
-  s = s.replace(/(\/[A-Za-z0-9_-]{24,})(?=[/?&#]|$)/g, '/***');
-  return truncate(s);
+	let s = String(raw === null || raw === undefined ? '' : raw);
+	if (!s) return '(空)';
+	// https://user:pass@host/... → https://host/...
+	s = s.replace(/\/\/[^@/]*@/g, '//');
+	// ?token=xxx&code=yyy → ?token=***&code=***
+	s = redactSecrets(s);
+	// /AbCd1234...(≥24 位) → /***
+	s = s.replace(/(\/[A-Za-z0-9_-]{24,})(?=[/?&#]|$)/g, '/***');
+	return truncate(s);
 }
 
 /** 类型直方图，如 { vmess: 80, ss: 60 } */
 function countBy(list, pick) {
-  const out = {};
-  for (const item of list || []) {
-    const k = String(pick(item) || 'unknown');
-    out[k] = (out[k] || 0) + 1;
-  }
-  return out;
+	const out = {};
+	for (const item of list || []) {
+		const k = String(pick(item) || 'unknown');
+		out[k] = (out[k] || 0) + 1;
+	}
+	return out;
 }
 
 /** 6 位十六进制请求号，用于把同一请求的多行日志串起来 */
 function reqId() {
-  return crypto.randomBytes(3).toString('hex');
+	return crypto.randomBytes(3).toString('hex');
 }
 
 /** 毫秒计时器：t.text() 得到 '842ms' / '1.9s' */
 function timer() {
-  const t0 = process.hrtime.bigint();
-  return {
-    ms: () => Number(process.hrtime.bigint() - t0) / 1e6,
-    text() {
-      return formatMs(this.ms());
-    },
-  };
+	const t0 = process.hrtime.bigint();
+	return {
+		ms: () => Number(process.hrtime.bigint() - t0) / 1e6,
+		text() {
+			return formatMs(this.ms());
+		},
+	};
 }
 
 function formatMs(ms) {
-  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`;
+	return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`;
 }
 
 function formatBytes(n) {
-  if (!Number.isFinite(n)) return String(n);
-  if (n < 1024) return `${n}B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
-  return `${(n / 1024 / 1024).toFixed(2)}MB`;
+	if (!Number.isFinite(n)) return String(n);
+	if (n < 1024) return `${n}B`;
+	if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
+	return `${(n / 1024 / 1024).toFixed(2)}MB`;
 }
 
 // ===================== 有状态：Logger 类 =====================
@@ -311,168 +317,176 @@ function formatBytes(n) {
  * 也便于将来按子系统拆分多个日志文件。
  */
 class Logger {
-  /** @type {boolean} 日志目录是否已确认存在 */
-  #dirReady = false;
-  /** @type {boolean} 写盘是否已失败并降级为「仅控制台」 */
-  #fileBroken = false;
+	/** @type {boolean} 日志目录是否已确认存在 */
+	#dirReady = false;
+	/** @type {boolean} 写盘是否已失败并降级为「仅控制台」 */
+	#fileBroken = false;
 
-  /**
-   * @param {Object} [options]
-   * @param {string} [options.logDir]     日志目录
-   * @param {string} [options.appLog]     全量日志文件路径
-   * @param {string} [options.errLog]     warn/error 日志文件路径
-   * @param {number} [options.fileLevel]  文件记录的最低级别（数值）
-   * @param {number} [options.consoleLevel] 控制台输出的最低级别（数值）
-   * @param {number} [options.maxBytes]   单文件体积上限
-   */
-  constructor(options = {}) {
-    this.logDir = options.logDir || LOG_DIR;
-    this.appLog = options.appLog || path.join(this.logDir, 'app.log');
-    this.errLog = options.errLog || path.join(this.logDir, 'error.log');
-    this.fileLevel = options.fileLevel ?? FILE_LEVEL;
-    this.consoleLevel = options.consoleLevel ?? CONSOLE_LEVEL;
-    this.maxBytes = options.maxBytes ?? MAX_BYTES;
-  }
+	/**
+	 * @param {Object} [options]
+	 * @param {string} [options.logDir]     日志目录
+	 * @param {string} [options.appLog]     全量日志文件路径
+	 * @param {string} [options.errLog]     warn/error 日志文件路径
+	 * @param {number} [options.fileLevel]  文件记录的最低级别（数值）
+	 * @param {number} [options.consoleLevel] 控制台输出的最低级别（数值）
+	 * @param {number} [options.maxBytes]   单文件体积上限
+	 */
+	constructor(options = {}) {
+		this.logDir = options.logDir || LOG_DIR;
+		this.appLog = options.appLog || path.join(this.logDir, 'app.log');
+		this.errLog = options.errLog || path.join(this.logDir, 'error.log');
+		this.fileLevel = options.fileLevel ?? FILE_LEVEL;
+		this.consoleLevel = options.consoleLevel ?? CONSOLE_LEVEL;
+		this.maxBytes = options.maxBytes ?? MAX_BYTES;
+	}
 
-  /** 写盘是否已降级为「仅控制台」（供诊断/测试观察） */
-  get fileBroken() {
-    return this.#fileBroken;
-  }
+	/** 写盘是否已降级为「仅控制台」（供诊断/测试观察） */
+	get fileBroken() {
+		return this.#fileBroken;
+	}
 
-  #ensureDir() {
-    if (this.#dirReady) return true;
-    try {
-      fs.mkdirSync(this.logDir, { recursive: true });
-      this.#dirReady = true;
-      return true;
-    } catch (err) {
-      this.#degrade(`无法创建日志目录 ${this.logDir}: ${err.message}`);
-      return false;
-    }
-  }
+	#ensureDir() {
+		if (this.#dirReady) return true;
+		try {
+			fs.mkdirSync(this.logDir, { recursive: true });
+			this.#dirReady = true;
+			return true;
+		} catch (err) {
+			this.#degrade(`无法创建日志目录 ${this.logDir}: ${err.message}`);
+			return false;
+		}
+	}
 
-  /** 标记写盘失败并降级（只提示一次，避免每次写都刷屏） */
-  #degrade(reason) {
-    if (this.#fileBroken) return;
-    this.#fileBroken = true;
-    process.stderr.write(`[logger] ${reason}（后续日志仅输出到控制台）\n`);
-  }
+	/** 标记写盘失败并降级（只提示一次，避免每次写都刷屏） */
+	#degrade(reason) {
+		if (this.#fileBroken) return;
+		this.#fileBroken = true;
+		process.stderr.write(`[logger] ${reason}（后续日志仅输出到控制台）\n`);
+	}
 
-  /** 超过上限就把当前文件改名为 .1（先删旧的，Windows 上 rename 不覆盖已存在文件） */
-  #rotate(file) {
-    let size;
-    try {
-      size = fs.statSync(file).size;
-    } catch {
-      return; // 文件还不存在
-    }
-    if (size < this.maxBytes) return;
-    try { fs.rmSync(`${file}.1`, { force: true }); } catch { /* 忽略 */ }
-    try { fs.renameSync(file, `${file}.1`); } catch { /* 忽略 */ }
-  }
+	/** 超过上限就把当前文件改名为 .1（先删旧的，Windows 上 rename 不覆盖已存在文件） */
+	#rotate(file) {
+		let size;
+		try {
+			size = fs.statSync(file).size;
+		} catch {
+			return; // 文件还不存在
+		}
+		if (size < this.maxBytes) return;
+		try {
+			fs.rmSync(`${file}.1`, { force: true });
+		} catch {
+			/* 忽略 */
+		}
+		try {
+			fs.renameSync(file, `${file}.1`);
+		} catch {
+			/* 忽略 */
+		}
+	}
 
-  #emit(file, line) {
-    if (this.#fileBroken) return;
-    if (!this.#ensureDir()) return;
-    try {
-      this.#rotate(file);
-      fs.appendFileSync(file, line, 'utf-8');
-    } catch (err) {
-      this.#degrade(`写入 ${file} 失败: ${err.message}`);
-    }
-  }
+	#emit(file, line) {
+		if (this.#fileBroken) return;
+		if (!this.#ensureDir()) return;
+		try {
+			this.#rotate(file);
+			fs.appendFileSync(file, line, 'utf-8');
+		} catch (err) {
+			this.#degrade(`写入 ${file} 失败: ${err.message}`);
+		}
+	}
 
-  /**
-   * 写一行日志。
-   * @param {'debug'|'info'|'warn'|'error'} level
-   * @param {string} scope
-   * @param {string} msg
-   * @param {Object} [data]
-   */
-  write(level, scope, msg, data) {
-    let line = `${timestamp()} ${level.toUpperCase().padEnd(5)} [${scope}] ${msg}`;
+	/**
+	 * 写一行日志。
+	 * @param {'debug'|'info'|'warn'|'error'} level
+	 * @param {string} scope
+	 * @param {string} msg
+	 * @param {Object} [data]
+	 */
+	write(level, scope, msg, data) {
+		let line = `${timestamp()} ${level.toUpperCase().padEnd(5)} [${scope}] ${msg}`;
 
-    if (data && typeof data === 'object') {
-      const parts = [];
-      for (const [k, v] of Object.entries(data)) {
-        if (v === undefined) continue;
-        parts.push(`${k}=${fmtValue(v)}`);
-      }
-      if (parts.length) line += ' ' + parts.join(' ');
-    }
-    line += '\n';
+		if (data && typeof data === 'object') {
+			const parts = [];
+			for (const [k, v] of Object.entries(data)) {
+				if (v === undefined) continue;
+				parts.push(`${k}=${fmtValue(v)}`);
+			}
+			if (parts.length) line += ' ' + parts.join(' ');
+		}
+		line += '\n';
 
-    if (LEVELS[level] >= this.fileLevel) this.#emit(this.appLog, line);
-    if (LEVELS[level] >= LEVELS.warn) this.#emit(this.errLog, line);
+		if (LEVELS[level] >= this.fileLevel) this.#emit(this.appLog, line);
+		if (LEVELS[level] >= LEVELS.warn) this.#emit(this.errLog, line);
 
-    if (LEVELS[level] >= this.consoleLevel) {
-      (level === 'error' ? process.stderr : process.stdout).write(line);
-    }
-  }
+		if (LEVELS[level] >= this.consoleLevel) {
+			(level === 'error' ? process.stderr : process.stdout).write(line);
+		}
+	}
 
-  /**
-   * 创建一个带 scope 的 logger。scope 会出现在每行日志的 [ ] 里，
-   * 便于 grep 单个请求（如 `[sub#3f9a1c]`）或单个模块（如 `[parser]`）。
-   *
-   * @param {string} scope
-   * @returns {{debug:Function,info:Function,warn:Function,error:Function,fail:Function}}
-   */
-  create(scope) {
-    const s = scope || 'app';
-    return {
-      debug: (msg, data) => this.write('debug', s, msg, data),
-      info: (msg, data) => this.write('info', s, msg, data),
-      warn: (msg, data) => this.write('warn', s, msg, data),
-      error: (msg, data) => this.write('error', s, msg, data),
-      /**
-       * 记录一个异常（含截断的调用栈与网络错误码）。catch 块统一用它，
-       * 避免各处手写 err.message / err.stack 时漏掉栈，也避免只写下一句
-       * 毫无信息量的 `fetch failed`。
-       */
-      fail: (msg, err, data) => {
-        const d = describeError(err);
-        return this.write('error', s, msg, {
-          err: d.reason,
-          code: d.code,
-          'net-code': d['net-code'],
-          'net-hint': d['net-hint'],
-          'net-cause': d['net-cause'],
-          'net-detail': d['net-detail'],
-          ...(data || {}),
-          stack: stackOf(err),
-        });
-      },
-    };
-  }
+	/**
+	 * 创建一个带 scope 的 logger。scope 会出现在每行日志的 [ ] 里，
+	 * 便于 grep 单个请求（如 `[sub#3f9a1c]`）或单个模块（如 `[parser]`）。
+	 *
+	 * @param {string} scope
+	 * @returns {{debug:Function,info:Function,warn:Function,error:Function,fail:Function}}
+	 */
+	create(scope) {
+		const s = scope || 'app';
+		return {
+			debug: (msg, data) => this.write('debug', s, msg, data),
+			info: (msg, data) => this.write('info', s, msg, data),
+			warn: (msg, data) => this.write('warn', s, msg, data),
+			error: (msg, data) => this.write('error', s, msg, data),
+			/**
+			 * 记录一个异常（含截断的调用栈与网络错误码）。catch 块统一用它，
+			 * 避免各处手写 err.message / err.stack 时漏掉栈，也避免只写下一句
+			 * 毫无信息量的 `fetch failed`。
+			 */
+			fail: (msg, err, data) => {
+				const d = describeError(err);
+				return this.write('error', s, msg, {
+					err: d.reason,
+					code: d.code,
+					'net-code': d['net-code'],
+					'net-hint': d['net-hint'],
+					'net-cause': d['net-cause'],
+					'net-detail': d['net-detail'],
+					...(data || {}),
+					stack: stackOf(err),
+				});
+			},
+		};
+	}
 }
 
 /** 默认单例：模块加载时即按环境变量配置好 */
 const defaultLogger = new Logger();
 
 module.exports = {
-  Logger,
-  /** 默认单例的 create（保持既有调用方 `logger.create('scope')` 不变） */
-  create: (scope) => defaultLogger.create(scope),
-  reqId,
-  timer,
-  formatMs,
-  formatBytes,
-  safeUrl,
-  preview,
-  hostOf,
-  httpHint,
-  describeError,
-  redactSecrets,
-  countBy,
-  // 供测试与诊断
-  LOG_DIR,
-  APP_LOG,
-  ERR_LOG,
-  MAX_PREVIEW_SOURCE_BYTES,
-  level: {
-    file: FILE_LEVEL,
-    console: CONSOLE_LEVEL,
-    fileName: FILE_LEVEL_NAME,
-    consoleName: CONSOLE_LEVEL_NAME,
-  },
+	Logger,
+	/** 默认单例的 create（保持既有调用方 `logger.create('scope')` 不变） */
+	create: scope => defaultLogger.create(scope),
+	reqId,
+	timer,
+	formatMs,
+	formatBytes,
+	safeUrl,
+	preview,
+	hostOf,
+	httpHint,
+	describeError,
+	redactSecrets,
+	countBy,
+	// 供测试与诊断
+	LOG_DIR,
+	APP_LOG,
+	ERR_LOG,
+	MAX_PREVIEW_SOURCE_BYTES,
+	level: {
+		file: FILE_LEVEL,
+		console: CONSOLE_LEVEL,
+		fileName: FILE_LEVEL_NAME,
+		consoleName: CONSOLE_LEVEL_NAME,
+	},
 };

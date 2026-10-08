@@ -58,11 +58,11 @@ const GUEST_DIR = path.join(ROOT, 'guests');
  *   '1.2.3.4, 10.0.0.1'     → '1.2.3.4'     （代理人多跳时 X-Forwarded-For 是逗号分隔列表）
  */
 function normalizeIp(ip) {
-  if (!ip || typeof ip !== 'string') return '';
-  let s = ip.trim();
-  if (s.includes(',')) s = s.split(',')[0].trim();
-  if (s.startsWith('::ffff:')) s = s.slice(7);
-  return s;
+	if (!ip || typeof ip !== 'string') return '';
+	let s = ip.trim();
+	if (s.includes(',')) s = s.split(',')[0].trim();
+	if (s.startsWith('::ffff:')) s = s.slice(7);
+	return s;
 }
 
 /**
@@ -77,19 +77,19 @@ function normalizeIp(ip) {
  * '..' 之类也构不成目录穿越（只会得到 guests/...json 这个普通文件名）。
  */
 function normalizeGuestId(ip) {
-  const cleaned = normalizeIp(ip).replace(/[^0-9a-zA-Z._-]/g, '_');
-  if (!cleaned || cleaned === '.' || cleaned === '..') return 'unknown';
-  return cleaned;
+	const cleaned = normalizeIp(ip).replace(/[^0-9a-zA-Z._-]/g, '_');
+	if (!cleaned || cleaned === '.' || cleaned === '..') return 'unknown';
+	return cleaned;
 }
 
 /** 访客配置文件的绝对路径；ID 非法时抛错（兜底，正常不会触发） */
 function guestFile(guestId) {
-  const dir = path.resolve(GUEST_DIR);
-  const file = path.join(dir, `${normalizeGuestId(guestId)}.json`);
-  if (path.dirname(file) !== dir) {
-    throw new Error(`非法的访客 ID: ${guestId}`);
-  }
-  return file;
+	const dir = path.resolve(GUEST_DIR);
+	const file = path.join(dir, `${normalizeGuestId(guestId)}.json`);
+	if (path.dirname(file) !== dir) {
+		throw new Error(`非法的访客 ID: ${guestId}`);
+	}
+	return file;
 }
 
 // ===================== 管理员判定 =====================
@@ -99,9 +99,9 @@ const LOOPBACK_IPS = ['127.0.0.1', '::1'];
 
 /** 环境变量 ADMIN_IPS 指定的管理员 IP（逗号 / 分号 / 空格分隔） */
 const ADMIN_IPS = String(process.env.ADMIN_IPS || '')
-  .split(/[,;\s]+/)
-  .map(normalizeIp)
-  .filter(Boolean);
+	.split(/[,;\s]+/)
+	.map(normalizeIp)
+	.filter(Boolean);
 
 /**
  * 当前生效的管理员 IP 列表。
@@ -112,13 +112,13 @@ const ADMIN_IPS = String(process.env.ADMIN_IPS || '')
  * ADMIN_IPS 显式声明管理员的真实 IP。
  */
 function adminIps(trustProxy) {
-  return trustProxy ? [...ADMIN_IPS] : [...new Set([...LOOPBACK_IPS, ...ADMIN_IPS])];
+	return trustProxy ? [...ADMIN_IPS] : [...new Set([...LOOPBACK_IPS, ...ADMIN_IPS])];
 }
 
 function isAdminIp(ip, trustProxy) {
-  const norm = normalizeIp(ip);
-  if (!norm) return false;
-  return adminIps(trustProxy).includes(norm);
+	const norm = normalizeIp(ip);
+	if (!norm) return false;
+	return adminIps(trustProxy).includes(norm);
 }
 
 // ===================== 请求 → 访客 =====================
@@ -143,17 +143,17 @@ function isAdminIp(ip, trustProxy) {
  *      trust proxy = 'loopback' → 9.9.9.9       ✅
  */
 function parseTrustProxy(raw) {
-  const v = String(raw || '').trim();
-  if (!v || v === '0' || v.toLowerCase() === 'false') return false;
-  // '1' / 'true' 一律当作「信任 1 跳」（见上方说明，不能返回布尔 true）
-  if (v === '1' || v.toLowerCase() === 'true') return 1;
-  if (/^\d+$/.test(v)) return Number(v);
-  return v;
+	const v = String(raw || '').trim();
+	if (!v || v === '0' || v.toLowerCase() === 'false') return false;
+	// '1' / 'true' 一律当作「信任 1 跳」（见上方说明，不能返回布尔 true）
+	if (v === '1' || v.toLowerCase() === 'true') return 1;
+	if (/^\d+$/.test(v)) return Number(v);
+	return v;
 }
 
 /** 本次请求的客户端 IP（拿不到时返回空串） */
 function clientIp(req) {
-  return normalizeIp(req.ip || (req.socket && req.socket.remoteAddress) || '');
+	return normalizeIp(req.ip || (req.socket && req.socket.remoteAddress) || '');
 }
 
 /**
@@ -164,16 +164,16 @@ function clientIp(req) {
  * 万一出现异常情况，宁可让配置之间互相隔离，也不要暴露管理员的配置。
  */
 function guestIdFrom(req) {
-  const trustProxy = !!(req.app && req.app.get('trust proxy'));
-  const ip = clientIp(req);
-  if (ip && isAdminIp(ip, trustProxy)) return null;
-  return normalizeGuestId(ip);
+	const trustProxy = !!(req.app && req.app.get('trust proxy'));
+	const ip = clientIp(req);
+	if (ip && isAdminIp(ip, trustProxy)) return null;
+	return normalizeGuestId(ip);
 }
 
 /** 供接口回显 / 日志用：这次请求的身份 */
 function scopeOf(req) {
-  const guest = guestIdFrom(req);
-  return { ip: clientIp(req) || '(未知)', guest, admin: guest === null };
+	const guest = guestIdFrom(req);
+	return { ip: clientIp(req) || '(未知)', guest, admin: guest === null };
 }
 
 // ===================== 读写 =====================
@@ -198,27 +198,29 @@ const MAX_GUESTS = Number(process.env.MAX_GUESTS) > 0 ? Number(process.env.MAX_G
  * @throws {Error} 访客数已达 MAX_GUESTS 时抛错（POST /api/config 会转成 500 返回）
  */
 function createGuestConfig(guestId) {
-  const id = normalizeGuestId(guestId);
-  if (known.has(id)) return false;
+	const id = normalizeGuestId(guestId);
+	if (known.has(id)) return false;
 
-  fs.mkdirSync(GUEST_DIR, { recursive: true });
-  const file = guestFile(id);
+	fs.mkdirSync(GUEST_DIR, { recursive: true });
+	const file = guestFile(id);
 
-  if (fs.existsSync(file)) {
-    known.add(id);
-    return false;
-  }
+	if (fs.existsSync(file)) {
+		known.add(id);
+		return false;
+	}
 
-  const total = listGuestIds().length;
-  if (total >= MAX_GUESTS) {
-    throw new Error(`访客数量已达上限 ${MAX_GUESTS}（可用环境变量 MAX_GUESTS 调整），拒绝为 ${id} 新建配置`);
-  }
+	const total = listGuestIds().length;
+	if (total >= MAX_GUESTS) {
+		throw new Error(
+			`访客数量已达上限 ${MAX_GUESTS}（可用环境变量 MAX_GUESTS 调整），拒绝为 ${id} 新建配置`,
+		);
+	}
 
-  // 空的差异 = 完全继承站点基准。不做 config.json 拷贝，理由见文件头注释。
-  fs.writeFileSync(file, '{}\n', 'utf-8');
-  known.add(id);
-  log.info('新建访客配置（继承站点基准）', { guest: id, path: file, total: total + 1 });
-  return true;
+	// 空的差异 = 完全继承站点基准。不做 config.json 拷贝，理由见文件头注释。
+	fs.writeFileSync(file, '{}\n', 'utf-8');
+	known.add(id);
+	log.info('新建访客配置（继承站点基准）', { guest: id, path: file, total: total + 1 });
+	return true;
 }
 
 /**
@@ -228,58 +230,58 @@ function createGuestConfig(guestId) {
  * （POST /api/config）才会生成 guests/<ID>.json。
  */
 function readGuestConfig(guestId) {
-  const id = normalizeGuestId(guestId);
-  try {
-    return JSON.parse(fs.readFileSync(guestFile(id), 'utf-8'));
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      // 文件不存在 = 该访客从未保存过，或运维刚把他重置掉（删文件即重置，无需重启）。
-      // 同时清掉进程内缓存，否则删掉文件后每次请求都会走到下面的 fail 分支。
-      known.delete(id);
-      return {};
-    }
-    log.fail('访客配置解析失败，已回退为继承站点基准', err, { guest: id });
-    return {};
-  }
+	const id = normalizeGuestId(guestId);
+	try {
+		return JSON.parse(fs.readFileSync(guestFile(id), 'utf-8'));
+	} catch (err) {
+		if (err.code === 'ENOENT') {
+			// 文件不存在 = 该访客从未保存过，或运维刚把他重置掉（删文件即重置，无需重启）。
+			// 同时清掉进程内缓存，否则删掉文件后每次请求都会走到下面的 fail 分支。
+			known.delete(id);
+			return {};
+		}
+		log.fail('访客配置解析失败，已回退为继承站点基准', err, { guest: id });
+		return {};
+	}
 }
 
 /** 写入访客配置（文件不存在时创建），返回文件路径 */
 function writeGuestConfig(guestId, data) {
-  const id = normalizeGuestId(guestId);
-  createGuestConfig(id);
-  const file = guestFile(id);
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8');
-  known.add(id);
-  return file;
+	const id = normalizeGuestId(guestId);
+	createGuestConfig(id);
+	const file = guestFile(id);
+	fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8');
+	known.add(id);
+	return file;
 }
 
 /** 已存在的访客 ID 列表（启动日志 / 运维查看用） */
 function listGuestIds() {
-  try {
-    return fs
-      .readdirSync(GUEST_DIR)
-      .filter(f => f.endsWith('.json'))
-      .map(f => f.slice(0, -5))
-      .sort();
-  } catch {
-    return [];
-  }
+	try {
+		return fs
+			.readdirSync(GUEST_DIR)
+			.filter(f => f.endsWith('.json'))
+			.map(f => f.slice(0, -5))
+			.sort();
+	} catch {
+		return [];
+	}
 }
 
 module.exports = {
-  GUEST_DIR,
-  normalizeIp,
-  normalizeGuestId,
-  guestFile,
-  adminIps,
-  isAdminIp,
-  parseTrustProxy,
-  clientIp,
-  guestIdFrom,
-  scopeOf,
-  MAX_GUESTS,
-  createGuestConfig,
-  readGuestConfig,
-  writeGuestConfig,
-  listGuestIds,
+	GUEST_DIR,
+	normalizeIp,
+	normalizeGuestId,
+	guestFile,
+	adminIps,
+	isAdminIp,
+	parseTrustProxy,
+	clientIp,
+	guestIdFrom,
+	scopeOf,
+	MAX_GUESTS,
+	createGuestConfig,
+	readGuestConfig,
+	writeGuestConfig,
+	listGuestIds,
 };

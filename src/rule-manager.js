@@ -23,170 +23,173 @@ const RULES_DIR = path.join(__dirname, '..', 'config', 'rules');
 const ALWAYS_ON_RULE_ID = 'common';
 
 class RuleManager {
-  constructor() {
-    this.rules = new Map(); // id -> ruleConfig
-    this.loadAll();
-  }
+	constructor() {
+		this.rules = new Map(); // id -> ruleConfig
+		this.loadAll();
+	}
 
-  /**
-   * 从磁盘加载所有规则文件
-   */
-  loadAll() {
-    this.rules.clear();
-    if (!fs.existsSync(RULES_DIR)) {
-      fs.mkdirSync(RULES_DIR, { recursive: true });
-      log.warn('规则目录不存在，已自动创建（此时无任何分流规则）', { dir: RULES_DIR });
-      return;
-    }
+	/**
+	 * 从磁盘加载所有规则文件
+	 */
+	loadAll() {
+		this.rules.clear();
+		if (!fs.existsSync(RULES_DIR)) {
+			fs.mkdirSync(RULES_DIR, { recursive: true });
+			log.warn('规则目录不存在，已自动创建（此时无任何分流规则）', { dir: RULES_DIR });
+			return;
+		}
 
-    const files = fs.readdirSync(RULES_DIR).filter(f => f.endsWith('.json'));
-    const failed = [];
-    for (const file of files) {
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(RULES_DIR, file), 'utf-8'));
-        if (data.id && data.name && Array.isArray(data.rules)) {
-          this.rules.set(data.id, data);
-        } else {
-          failed.push(`${file}（缺少 id / name / rules 字段）`);
-        }
-      } catch (err) {
-        failed.push(`${file}（${err.message}）`);
-      }
-    }
+		const files = fs.readdirSync(RULES_DIR).filter(f => f.endsWith('.json'));
+		const failed = [];
+		for (const file of files) {
+			try {
+				const data = JSON.parse(fs.readFileSync(path.join(RULES_DIR, file), 'utf-8'));
+				if (data.id && data.name && Array.isArray(data.rules)) {
+					this.rules.set(data.id, data);
+				} else {
+					failed.push(`${file}（缺少 id / name / rules 字段）`);
+				}
+			} catch (err) {
+				failed.push(`${file}（${err.message}）`);
+			}
+		}
 
-    if (failed.length) {
-      log.warn('部分规则文件未能加载', { failed });
-    }
-    log.info('分流规则加载完成', {
-      dir: RULES_DIR,
-      files: files.length,
-      loaded: this.rules.size,
-      ids: [...this.rules.keys()],
-    });
-  }
+		if (failed.length) {
+			log.warn('部分规则文件未能加载', { failed });
+		}
+		log.info('分流规则加载完成', {
+			dir: RULES_DIR,
+			files: files.length,
+			loaded: this.rules.size,
+			ids: [...this.rules.keys()],
+		});
+	}
 
-  /**
-   * 获取所有规则配置
-   */
-  getAll() {
-    return [...this.rules.values()];
-  }
+	/**
+	 * 获取所有规则配置
+	 */
+	getAll() {
+		return [...this.rules.values()];
+	}
 
-  /**
-   * 根据 ID 获取规则配置
-   */
-  getById(id) {
-    return this.rules.get(id) || null;
-  }
+	/**
+	 * 根据 ID 获取规则配置
+	 */
+	getById(id) {
+		return this.rules.get(id) || null;
+	}
 
-  /**
-   * 生成 Clash 分流规则
-   * @param {Object} options - { telegram: true, openai: false, customRules: [...] }
-   *   key 即规则 ID（对应 config/rules/*.json 文件名），value 为 true/undefined 表示启用
-   *   ALWAYS_ON_RULE_ID('common') 始终启用
-   * @returns {string[]} 规则数组，如 ['DOMAIN-SUFFIX,t.me,💬 Telegram', ...]
-   */
-  generateRules(options = {}) {
-    const { customRules = [], ...flags } = options;
+	/**
+	 * 生成 Clash 分流规则
+	 * @param {Object} options - { telegram: true, openai: false, customRules: [...] }
+	 *   key 即规则 ID（对应 config/rules/*.json 文件名），value 为 true/undefined 表示启用
+	 *   ALWAYS_ON_RULE_ID('common') 始终启用
+	 * @returns {string[]} 规则数组，如 ['DOMAIN-SUFFIX,t.me,💬 Telegram', ...]
+	 */
+	generateRules(options = {}) {
+		const { customRules = [], ...flags } = options;
 
-    // 没有任何 flag 时默认全部启用；有 flag 时按 flag 过滤
-    const hasFlags = Object.keys(flags).length > 0;
+		// 没有任何 flag 时默认全部启用；有 flag 时按 flag 过滤
+		const hasFlags = Object.keys(flags).length > 0;
 
-    // 已知的分组名（target）集合：用于判断规则是否已自带 target。
-    // 不能靠「逗号段数 >= 3」判断 —— IP-CIDR,1.2.3.4/32,no-resolve 是 3 段但没有 target，
-    // 那样会被误判为已带 target 而丢掉出口，mihomo 会拒绝加载整份配置。
-    const knownTargets = new Set([
-      'DIRECT', 'REJECT', 'PASS', 'GLOBAL',
-      ...this.getAll().map(r => r.target || r.name),
-    ]);
+		// 已知的分组名（target）集合：用于判断规则是否已自带 target。
+		// 不能靠「逗号段数 >= 3」判断 —— IP-CIDR,1.2.3.4/32,no-resolve 是 3 段但没有 target，
+		// 那样会被误判为已带 target 而丢掉出口，mihomo 会拒绝加载整份配置。
+		const knownTargets = new Set([
+			'DIRECT',
+			'REJECT',
+			'PASS',
+			'GLOBAL',
+			...this.getAll().map(r => r.target || r.name),
+		]);
 
-    const rules = [];
-    const enabledIds = [];
-    const disabledIds = [];
+		const rules = [];
+		const enabledIds = [];
+		const disabledIds = [];
 
-    for (const ruleConfig of this.rules.values()) {
-      const { id, target: ruleTarget, name, rules: patterns } = ruleConfig;
+		for (const ruleConfig of this.rules.values()) {
+			const { id, target: ruleTarget, name, rules: patterns } = ruleConfig;
 
-      // common 始终启用，其他按 flag 决定
-      if (id !== ALWAYS_ON_RULE_ID && hasFlags && !flags[id]) {
-        disabledIds.push(id);
-        continue;
-      }
-      enabledIds.push(id);
+			// common 始终启用，其他按 flag 决定
+			if (id !== ALWAYS_ON_RULE_ID && hasFlags && !flags[id]) {
+				disabledIds.push(id);
+				continue;
+			}
+			enabledIds.push(id);
 
-      const target = ruleTarget || name;
-      for (const rule of patterns) {
-        // 仅当末段是已知 target 时才认为已自带出口；否则补上本分组的 target
-        const last = rule.slice(rule.lastIndexOf(',') + 1).trim();
-        rules.push(knownTargets.has(last) ? rule : `${rule},${target}`);
-      }
-    }
+			const target = ruleTarget || name;
+			for (const rule of patterns) {
+				// 仅当末段是已知 target 时才认为已自带出口；否则补上本分组的 target
+				const last = rule.slice(rule.lastIndexOf(',') + 1).trim();
+				rules.push(knownTargets.has(last) ? rule : `${rule},${target}`);
+			}
+		}
 
-    // GEOIP 国内直连 + 自定义规则 + 兜底
-    rules.push(`GEOIP,CN,DIRECT`);
-    rules.push(...customRules, 'MATCH,🐟 漏网之鱼');
+		// GEOIP 国内直连 + 自定义规则 + 兜底
+		rules.push(`GEOIP,CN,DIRECT`);
+		rules.push(...customRules, 'MATCH,🐟 漏网之鱼');
 
-    log.debug('规则生成', {
-      hasFlags,
-      groups: enabledIds.length,
-      disabled: disabledIds.length ? disabledIds : undefined,
-      custom: customRules.length,
-      rules: rules.length,
-    });
+		log.debug('规则生成', {
+			hasFlags,
+			groups: enabledIds.length,
+			disabled: disabledIds.length ? disabledIds : undefined,
+			custom: customRules.length,
+			rules: rules.length,
+		});
 
-    return rules;
-  }
+		return rules;
+	}
 
-  /**
-   * 添加规则配置
-   */
-  add(config) {
-    if (!config.id || !config.name || !Array.isArray(config.rules)) {
-      throw new Error('无效的规则配置：需要 id, name, rules');
-    }
-    if (this.rules.has(config.id)) {
-      throw new Error(`规则 ${config.id} 已存在`);
-    }
-    this.rules.set(config.id, config);
-    this._save(config.id);
-    return config;
-  }
+	/**
+	 * 添加规则配置
+	 */
+	add(config) {
+		if (!config.id || !config.name || !Array.isArray(config.rules)) {
+			throw new Error('无效的规则配置：需要 id, name, rules');
+		}
+		if (this.rules.has(config.id)) {
+			throw new Error(`规则 ${config.id} 已存在`);
+		}
+		this.rules.set(config.id, config);
+		this._save(config.id);
+		return config;
+	}
 
-  /**
-   * 更新规则配置
-   */
-  update(id, data) {
-    const existing = this.rules.get(id);
-    if (!existing) throw new Error(`规则 ${id} 不存在`);
+	/**
+	 * 更新规则配置
+	 */
+	update(id, data) {
+		const existing = this.rules.get(id);
+		if (!existing) throw new Error(`规则 ${id} 不存在`);
 
-    const updated = { ...existing, ...data, id }; // id 不可变
-    this.rules.set(id, updated);
-    this._save(id);
-    return updated;
-  }
+		const updated = { ...existing, ...data, id }; // id 不可变
+		this.rules.set(id, updated);
+		this._save(id);
+		return updated;
+	}
 
-  /**
-   * 删除规则配置
-   */
-  remove(id) {
-    if (!this.rules.has(id)) throw new Error(`规则 ${id} 不存在`);
-    this.rules.delete(id);
-    const filePath = path.join(RULES_DIR, `${id}.json`);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  }
+	/**
+	 * 删除规则配置
+	 */
+	remove(id) {
+		if (!this.rules.has(id)) throw new Error(`规则 ${id} 不存在`);
+		this.rules.delete(id);
+		const filePath = path.join(RULES_DIR, `${id}.json`);
+		if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+	}
 
-  /**
-   * 保存单个规则到磁盘
-   */
-  _save(id) {
-    const config = this.rules.get(id);
-    if (!fs.existsSync(RULES_DIR)) fs.mkdirSync(RULES_DIR, { recursive: true });
-    fs.writeFileSync(
-      path.join(RULES_DIR, `${id}.json`),
-      JSON.stringify(config, null, 2),
-      'utf-8'
-    );
-  }
+	/**
+	 * 保存单个规则到磁盘
+	 */
+	_save(id) {
+		const config = this.rules.get(id);
+		if (!fs.existsSync(RULES_DIR)) fs.mkdirSync(RULES_DIR, { recursive: true });
+		fs.writeFileSync(
+			path.join(RULES_DIR, `${id}.json`),
+			JSON.stringify(config, null, 2),
+			'utf-8',
+		);
+	}
 }
 
 // 单例

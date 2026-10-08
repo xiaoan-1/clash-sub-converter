@@ -7,13 +7,18 @@
     "dev": "node index.js",
     "start": "pm2 start ecosystem.config.js",
     "stop": "pm2 stop clash-sub-converter",
-    "restart": "pm2 restart clash-sub-converter",
-    "logs": "pm2 logs clash-sub-converter",
+    "restart": "pm2 restart ecosystem.config.js",
+    "log": "pm2 logs clash-sub-converter",
     "status": "pm2 status",
-    "delete": "pm2 delete clash-sub-converter"
+    "delete": "pm2 delete clash-sub-converter",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.9.9"
   },
   "dependencies": {
-    "js-yaml": "^4.1.0",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "js-yaml": "^4.1.0"
   }
 }

@@ -1,0 +1,13 @@
+# 依赖与构建产物
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+
+# 运行时生成
+logs/
+guests/
+samples/
+
+# 中文文档（排版手工控制，不参与格式化）
+docs/
+README.md

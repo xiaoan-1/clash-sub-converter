@@ -9,11 +9,11 @@ const { base64Decode } = require('../utils/encoding');
  * 那样会让整条节点被丢弃，而这里完全可以退回原字符串。
  */
 function safeDecodeURIComponent(str) {
-  try {
-    return decodeURIComponent(str);
-  } catch {
-    return str;
-  }
+	try {
+		return decodeURIComponent(str);
+	} catch {
+		return str;
+	}
 }
 
 /**
@@ -31,14 +31,16 @@ function safeDecodeURIComponent(str) {
  * @returns {{method:string, password:string}|null} 辨认不出「加密方式:密码」时返回 null
  */
 function parseSsUserInfo(userinfo) {
-  const decoded = userinfo.includes(':') ? safeDecodeURIComponent(userinfo) : base64Decode(userinfo);
-  const sep = decoded.indexOf(':');
-  // 既非明文也非合法 base64 时拿不到冒号：与其产出一个密码/加密方式错乱的节点，不如丢弃
-  if (sep === -1) return null;
-  return {
-    method: decoded.substring(0, sep).trim(),
-    password: decoded.substring(sep + 1)
-  };
+	const decoded = userinfo.includes(':')
+		? safeDecodeURIComponent(userinfo)
+		: base64Decode(userinfo);
+	const sep = decoded.indexOf(':');
+	// 既非明文也非合法 base64 时拿不到冒号：与其产出一个密码/加密方式错乱的节点，不如丢弃
+	if (sep === -1) return null;
+	return {
+		method: decoded.substring(0, sep).trim(),
+		password: decoded.substring(sep + 1),
+	};
 }
 
 module.exports = { safeDecodeURIComponent, parseSsUserInfo };
