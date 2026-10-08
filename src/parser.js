@@ -1,11 +1,37 @@
 const yaml = require('js-yaml');
-const { base64Decode, safeJsonParse } = require('./utils');
+const { base64Decode } = require('./utils');
 const logger = require('./logger');
 
 const log = logger.create('parser');
 
-// 支持的代理类型
-const SUPPORTED_TYPES = new Set(['vmess', 'ss', 'ssr', 'trojan', 'vless', 'hysteria2', 'anytls', 'tuic', 'shadowsocks', 'shadowsocksr']);
+// ===================== 协议解析器注册 =====================
+
+/**
+ * 各协议解析器按分类文件注册。
+ * 每个注册项: { prefixes: [URI 前缀...], types: [Clash 类型...], parse: 函数 }
+ * 新增协议只需在此登记一行，无需改动 parseSubscription 主流程。
+ */
+const PROTOCOL_PARSERS = [
+  { prefixes: ['vmess://'],      types: ['vmess'],         parse: require('./parser/vmess').parseVmess },
+  { prefixes: ['ss://'],         types: ['ss', 'shadowsocks'], parse: require('./parser/ss').parseShadowsocks },
+  { prefixes: ['ssr://'],        types: ['ssr', 'shadowsocksr'], parse: require('./parser/ss').parseShadowsocksR },
+  { prefixes: ['trojan://'],     types: ['trojan'],        parse: require('./parser/trojan').parseTrojan },
+  { prefixes: ['vless://'],      types: ['vless'],         parse: require('./parser/vless').parseVless },
+  { prefixes: ['hysteria2://', 'hy2://'], types: ['hysteria2'], parse: require('./parser/hysteria').parseHysteria2 },
+  { prefixes: ['hysteria://'],   types: ['hysteria'],      parse: require('./parser/hysteria').parseHysteria },
+  { prefixes: ['anytls://'],     types: ['anytls'],        parse: require('./parser/anytls').parseAnyTLS },
+  { prefixes: ['tuic://'],       types: ['tuic'],          parse: require('./parser/tuic').parseTUIC },
+  { prefixes: ['snell://'],      types: ['snell'],         parse: require('./parser/snell').parseSnell },
+  { prefixes: ['socks5://', 'socks://'], types: ['socks5'], parse: require('./parser/socks-http').parseSocks },
+  { prefixes: ['http://', 'https://'], types: ['http'],    parse: require('./parser/socks-http').parseHttp },
+  { prefixes: ['wireguard://', 'wg://'], types: ['wireguard'], parse: require('./parser/wireguard').parseWireGuard },
+  { prefixes: ['shadowquic://'], types: ['shadowquic'],    parse: require('./parser/shadowquic').parseShadowQUIC },
+];
+
+// 支持的代理类型（Clash YAML 输入的白名单）
+const SUPPORTED_TYPES = new Set(PROTOCOL_PARSERS.flatMap(p => p.types));
+// 支持解码的 URI scheme 前缀
+const URI_SCHEME_PREFIXES = PROTOCOL_PARSERS.flatMap(p => p.prefixes);
 
 /**
  * 尝试将内容解析为包含 proxies 数组的 Clash YAML 文档
@@ -62,8 +88,11 @@ function tryParseClashYaml(content) {
 /**
  * 统一代理类型名称（shadowsocks → ss 等）
  */
-// 支持解码的 URI scheme 前缀
-const URI_SCHEME_PREFIXES = ['vmess://', 'ss://', 'ssr://', 'trojan://', 'vless://', 'hysteria2://', 'hy2://', 'anytls://', 'tuic://'];
+function normalizeType(type) {
+  if (!type) return type;
+  const map = { shadowsocks: 'ss', shadowsocksr: 'ssr' };
+  return map[type.toLowerCase()] || type.toLowerCase();
+}
 
 /**
  * 判断文本是否为可解析的 Clash YAML（含 proxies 数组）
@@ -104,16 +133,10 @@ function decodeSubscriptionContent(content) {
   return original;
 }
 
-function normalizeType(type) {
-  if (!type) return type;
-  const map = { shadowsocks: 'ss', shadowsocksr: 'ssr' };
-  return map[type.toLowerCase()] || type.toLowerCase();
-}
-
 /**
  * 解析订阅内容，返回统一的代理节点数组
  * 支持格式:
- *   - URI 列表: ss://, ssr://, vmess://, trojan://, hysteria2://, vless://
+ *   - URI 列表: 各协议 URI（见 PROTOCOL_PARSERS 注册表）
  *   - Clash YAML: 包含 proxies: 数组的 YAML 配置
  */
 function parseSubscription(content) {
@@ -129,7 +152,7 @@ function parseSubscription(content) {
     return proxiesFromYaml;
   }
 
-  // 回退到 URI scheme 解析
+  // 回退到 URI scheme 解析（按注册表前缀匹配）
   const lines = decoded.split('\n').map(l => l.trim()).filter(l => l && l.includes('://'));
   const proxies = [];
 
@@ -140,30 +163,17 @@ function parseSubscription(content) {
 
   for (const line of lines) {
     try {
-      let proxy = null;
-      if (line.startsWith('vmess://')) {
-        proxy = parseVmess(line);
-      } else if (line.startsWith('ss://')) {
-        proxy = parseShadowsocks(line);
-      } else if (line.startsWith('ssr://')) {
-        proxy = parseShadowsocksR(line);
-      } else if (line.startsWith('trojan://')) {
-        proxy = parseTrojan(line);
-      } else if (line.startsWith('vless://')) {
-        proxy = parseVless(line);
-      } else if (line.startsWith('hysteria2://') || line.startsWith('hy2://')) {
-        proxy = parseHysteria2(line);
-      } else if (line.startsWith('anytls://')) {
-        proxy = parseAnyTLS(line);
-      } else if (line.startsWith('tuic://')) {
-        proxy = parseTUIC(line);
-      } else {
-        // 不支持的 scheme，原来的实现在这里静默跳过
+      // 查找匹配的前缀处理器
+      const handler = PROTOCOL_PARSERS.find(p => p.prefixes.some(prefix => line.startsWith(prefix)));
+
+      if (!handler) {
+        // 不支持的 scheme
         const scheme = (line.match(/^([a-z0-9+.-]+):\/\//i) || [, '(无 scheme)'])[1].toLowerCase();
         unknownSchemes.set(scheme, (unknownSchemes.get(scheme) || 0) + 1);
         continue;
       }
 
+      const proxy = handler.parse(line);
       if (!proxy) {
         const scheme = (line.match(/^([a-z0-9+.-]+):\/\//i) || [, '(无 scheme)'])[1].toLowerCase();
         unknownSchemes.set(`${scheme}(解析为空)`, (unknownSchemes.get(`${scheme}(解析为空)`) || 0) + 1);
@@ -279,429 +289,6 @@ function parseSubscriptionList(sources = []) {
 }
 
 /**
- * 解析 VMess 链接
- * 格式: vmess://base64({json})
- */
-function parseVmess(link) {
-  const b64 = link.replace('vmess://', '');
-  const json = safeJsonParse(base64Decode(b64));
-  if (!json || !json.add || !json.port) return null;
-
-  const proxy = {
-    name: json.ps || `${json.add}:${json.port}`,
-    type: 'vmess',
-    server: json.add,
-    port: parseInt(json.port),
-    uuid: json.id,
-    alterId: parseInt(json.aid || 0),
-    cipher: 'auto',
-    udp: true
-  };
-
-  // 网络传输层
-  const net = json.net || 'tcp';
-  if (net === 'ws') {
-    proxy.network = 'ws';
-    proxy['ws-opts'] = {
-      path: json.path || '/',
-      headers: { Host: json.host || '' }
-    };
-  } else if (net === 'h2') {
-    proxy.network = 'h2';
-    proxy['h2-opts'] = {
-      host: [json.host || ''],
-      path: json.path || '/'
-    };
-  } else if (net === 'grpc') {
-    proxy.network = 'grpc';
-    proxy['grpc-opts'] = {
-      'grpc-service-name': json.path || ''
-    };
-  } else if (net === 'http') {
-    proxy.network = 'http';
-    proxy['http-opts'] = {
-      path: [json.path || '/'],
-      method: 'POST',
-      headers: {
-        Connection: ['keep-alive'],
-        Host: [json.host || '']
-      }
-    };
-  }
-
-  // TLS
-  if (json.tls === 'tls') {
-    proxy.tls = true;
-    if (json.sni) {
-      proxy.sni = json.sni;
-    }
-    if (json.alpn) {
-      proxy.alpn = json.alpn.split(',');
-    }
-    if (json.allowInsecure === '1' || json.allowInsecure === 1) {
-      proxy['skip-cert-verify'] = true;
-    }
-  }
-
-  return proxy;
-}
-
-/**
- * decodeURIComponent 的安全包装。
- * 用户给的名称里常有裸 `%`（如「100% 稳定」），decodeURIComponent 会抛 URIError；
- * 那样会让整条节点被丢弃，而这里完全可以退回原字符串。
- */
-function safeDecodeURIComponent(str) {
-  try {
-    return decodeURIComponent(str);
-  } catch {
-    return str;
-  }
-}
-
-/**
- * 解析 SS 的 userinfo，得到 { method, password }。
- *
- * SIP002 规定 userinfo 既可以是 URL-safe base64，也可以是 URL 编码的明文，两种都得支持：
- *   ss://<base64(aes-256-gcm:password)>@host:port
- *   ss://aes-256-gcm:password@host:port
- * 明文必然含冒号，而 base64 字符集（A-Za-z0-9+/-_）不含冒号，可据此区分。
- *
- * 密码允许含冒号（如 `pa:ss:word`），所以只能按「第一个冒号」切分 ——
- * 用 split(':') 只取前两段会把密码截断成 `pa`，进而连不上节点。
- * 加密方式名称本身不含冒号（aes-256-gcm、chacha20-ietf-poly1305 …），该前提由 SS 协议保证。
- *
- * @returns {{method:string, password:string}|null} 辨认不出「加密方式:密码」时返回 null
- */
-function parseSsUserInfo(userinfo) {
-  const decoded = userinfo.includes(':') ? safeDecodeURIComponent(userinfo) : base64Decode(userinfo);
-  const sep = decoded.indexOf(':');
-  // 既非明文也非合法 base64 时拿不到冒号：与其产出一个密码/加密方式错乱的节点，不如丢弃
-  if (sep === -1) return null;
-  return {
-    method: decoded.substring(0, sep).trim(),
-    password: decoded.substring(sep + 1)
-  };
-}
-
-/**
- * 解析 SS 链接
- * 格式: ss://base64(method:password)@server:port#name
- * 或:   ss://base64(method:password@server:port)#name
- */
-function parseShadowsocks(link) {
-  const content = link.replace('ss://', '');
-  const nameIdx = content.indexOf('#');
-  let name = '';
-  let body = content;
-
-  if (nameIdx !== -1) {
-    name = safeDecodeURIComponent(content.substring(nameIdx + 1));
-    body = content.substring(0, nameIdx);
-  }
-
-  let creds, server, port;
-
-  if (body.includes('@')) {
-    // SIP002 格式: ss://userinfo@server:port
-    // 按第一个 @ 切分：host 部分不含 @，而密码里可能有
-    const atIdx = body.indexOf('@');
-    creds = parseSsUserInfo(body.substring(0, atIdx));
-    const hostinfo = body.substring(atIdx + 1);
-    const lastColon = hostinfo.lastIndexOf(':');
-    server = hostinfo.substring(0, lastColon);
-    port = parseInt(hostinfo.substring(lastColon + 1));
-  } else {
-    // 旧格式: ss://base64(method:password@server:port)
-    const decoded = base64Decode(body);
-    const atIdx = decoded.indexOf('@');
-    if (atIdx === -1) return null;
-    creds = parseSsUserInfo(decoded.substring(0, atIdx));
-    const hostPart = decoded.substring(atIdx + 1);
-    const lastColon = hostPart.lastIndexOf(':');
-    server = hostPart.substring(0, lastColon);
-    port = parseInt(hostPart.substring(lastColon + 1));
-  }
-
-  if (!creds || !creds.method || !server || !port) return null;
-
-  return {
-    name: name || `${server}:${port}`,
-    type: 'ss',
-    server,
-    port,
-    password: creds.password,
-    cipher: creds.method,
-    udp: true
-  };
-}
-
-/**
- * 解析 SSR 链接
- * 格式: ssr://base64(server:port:protocol:method:obfs:base64(password)/?params)
- */
-function parseShadowsocksR(link) {
-  const decoded = base64Decode(link.replace('ssr://', ''));
-  const parts = decoded.split('/?');
-  const mainPart = parts[0];
-  const params = parts[1] || '';
-
-  const [server, port, protocol, method, obfs, passwordB64] = mainPart.split(':');
-  const password = base64Decode(passwordB64);
-
-  // 解析参数
-  const paramObj = {};
-  if (params) {
-    params.split('&').forEach(p => {
-      const [k, v] = p.split('=');
-      if (v) paramObj[k] = base64Decode(v);
-    });
-  }
-
-  const name = paramObj.remarks || `${server}:${port}`;
-
-  return {
-    name,
-    type: 'ssr',
-    server,
-    port: parseInt(port),
-    password,
-    cipher: method || 'aes-256-cfb',
-    protocol,
-    'protocol-param': paramObj.protoparam || '',
-    obfs,
-    'obfs-param': paramObj.obfsparam || '',
-    udp: true
-  };
-}
-
-/**
- * 解析 Trojan 链接
- * 格式: trojan://password@server:port?params#name
- */
-function parseTrojan(link) {
-  const url = new URL(link);
-  const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
-
-  const proxy = {
-    name,
-    type: 'trojan',
-    server: url.hostname,
-    port: parseInt(url.port),
-    password: url.username,
-    udp: true
-  };
-
-  const sni = url.searchParams.get('sni') || url.searchParams.get('peer');
-  if (sni) proxy.sni = sni;
-
-  const skipCert = url.searchParams.get('allowInsecure');
-  if (skipCert === '1') proxy['skip-cert-verify'] = true;
-
-  // 传输层
-  const transport = url.searchParams.get('type');
-  if (transport === 'ws') {
-    proxy.network = 'ws';
-    proxy['ws-opts'] = {
-      path: url.searchParams.get('path') || '/',
-      headers: { Host: url.searchParams.get('host') || '' }
-    };
-  } else if (transport === 'grpc') {
-    proxy.network = 'grpc';
-    proxy['grpc-opts'] = {
-      'grpc-service-name': url.searchParams.get('serviceName') || ''
-    };
-  }
-
-  return proxy;
-}
-
-/**
- * 解析 VLESS 链接
- * 格式: vless://uuid@server:port?params#name
- *
- * 注意 mihomo 的 VLESS 与 VMess 字段并不通用：
- *   - 没有 alterId / cipher，带上去会被内核判为不支持的字段
- *   - SNI 用 servername，不是 sni
- *   - XTLS 流控用 flow
- */
-function parseVless(link) {
-  const url = new URL(link);
-  const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
-
-  const proxy = {
-    name,
-    type: 'vless',
-    server: url.hostname,
-    port: parseInt(url.port),
-    uuid: decodeURIComponent(url.username),
-    udp: true
-  };
-
-  // XTLS 流控（xtls-rprx-vision 等），不设置则内核按普通 VLESS 处理
-  const flow = url.searchParams.get('flow');
-  if (flow) proxy.flow = flow;
-
-  // 传输层安全：tls / reality / none
-  const security = url.searchParams.get('security');
-  if (security === 'tls' || security === 'reality') proxy.tls = true;
-
-  // VLESS 的 SNI 字段名是 servername（不是 sni）
-  const sni = url.searchParams.get('sni') || url.searchParams.get('peer');
-  if (sni) proxy.servername = sni;
-
-  const fingerprint = url.searchParams.get('fp');
-  if (fingerprint) proxy['client-fingerprint'] = fingerprint;
-
-  // ALPN：vless 链接里是逗号分隔的字符串，Clash 要数组
-  const alpn = url.searchParams.get('alpn');
-  if (alpn) proxy.alpn = alpn.split(',').map(s => s.trim()).filter(Boolean);
-
-  const insecure = url.searchParams.get('insecure') || url.searchParams.get('allowInsecure');
-  if (insecure === '1' || insecure === 'true') proxy['skip-cert-verify'] = true;
-
-  // Reality：pbk 为公钥，sid 为 short-id
-  if (security === 'reality') {
-    const publicKey = url.searchParams.get('pbk');
-    if (publicKey) {
-      const realityOpts = { 'public-key': publicKey };
-      const shortId = url.searchParams.get('sid');
-      if (shortId) realityOpts['short-id'] = shortId;
-      proxy['reality-opts'] = realityOpts;
-    }
-  }
-
-  // 传输层
-  const transport = url.searchParams.get('type');
-  if (transport === 'ws') {
-    proxy.network = 'ws';
-    proxy['ws-opts'] = {
-      path: url.searchParams.get('path') || '/',
-      headers: { Host: url.searchParams.get('host') || '' }
-    };
-  } else if (transport === 'grpc') {
-    proxy.network = 'grpc';
-    proxy['grpc-opts'] = {
-      'grpc-service-name': url.searchParams.get('serviceName') || ''
-    };
-  } else if (transport === 'h2') {
-    proxy.network = 'h2';
-    proxy['h2-opts'] = {
-      host: [url.searchParams.get('host') || ''],
-      path: url.searchParams.get('path') || '/'
-    };
-  } else if (transport) {
-    proxy.network = transport;
-  }
-
-  return proxy;
-}
-
-/**
- * 解析 Hysteria2 链接
- * 格式: hysteria2://password@server:port?params#name
- */
-function parseHysteria2(link) {
-  const url = new URL(link);
-  const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
-
-  const proxy = {
-    name,
-    type: 'hysteria2',
-    server: url.hostname,
-    port: parseInt(url.port),
-    password: url.username,
-    up: url.searchParams.get('up') || '20 Mbps',
-    down: url.searchParams.get('down') || '50 Mbps',
-    udp: true
-  };
-
-  const sni = url.searchParams.get('sni');
-  if (sni) proxy.sni = sni;
-
- 
-
-/**
- * 解析 AnyTLS 链接
- * 格式: anytls://password@server:port?params#name
- */
-function parseAnyTLS(link) {
-  const url = new URL(link);
-  const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
-
-  const proxy = {
-    name,
-    type: 'anytls',
-    server: url.hostname,
-    port: parseInt(url.port),
-    password: url.username,
-    udp: true
-  };
-
-  const sni = url.searchParams.get('sni') || url.searchParams.get('peer');
-  if (sni) proxy.sni = sni;
-
-  const skipCert = url.searchParams.get('allowInsecure') || url.searchParams.get('insecure');
-  if (skipCert === '1' || skipCert === 'true') proxy['skip-cert-verify'] = true;
-
-  return proxy;
-}
-
-/**
- * 解析 TUIC 链接
- * 格式: tuic://uuid:password@server:port?params#name   （TUIC V5）
- *       tuic://token@server:port?params#name           （TUIC V4）
- */
-function parseTUIC(link) {
-  const url = new URL(link);
-  const name = decodeURIComponent(url.hash.substring(1)) || `${url.hostname}:${url.port}`;
-
-  const proxy = {
-    name,
-    type: 'tuic',
-    server: url.hostname,
-    port: parseInt(url.port),
-    udp: true
-  };
-
-  // userinfo:uuid:password 由 URL 规范自动拆成 username/password（V5）；
-  // 只有单个 token 时 username 承载全部内容（V4）
-  if (url.username && url.password) {
-    proxy.uuid = url.username;
-    proxy.password = url.password;
-  } else if (url.username) {
-    proxy.token = url.username;
-  }
-
-  const sni = url.searchParams.get('sni');
-  if (sni) proxy.sni = sni;
-
-  const alpn = url.searchParams.get('alpn');
-  if (alpn) proxy.alpn = alpn.split(',').map(s => s.trim()).filter(Boolean);
-
-  const congestion = url.searchParams.get('congestion_control') || url.searchParams.get('congestion-controller');
-  if (congestion) proxy['congestion-controller'] = congestion;
-
-  const udpRelay = url.searchParams.get('udp_relay_mode') || url.searchParams.get('udp-relay-mode');
-  if (udpRelay) proxy['udp-relay-mode'] = udpRelay;
-
-  const skipCert = url.searchParams.get('allowInsecure') || url.searchParams.get('insecure');
-  if (skipCert === '1' || skipCert === 'true') proxy['skip-cert-verify'] = true;
-
-  return proxy;
-} const skipCert = url.searchParams.get('insecure');
-  if (skipCert === '1') proxy['skip-cert-verify'] = true;
-
-  return proxy;
-}
-
-module.exports = {
-  parseSubscription,
-  parseSubscriptionList,
-  extractClashDns
-};
-
-/**
  * 从订阅内容中提取 Clash YAML 自带的 DNS 配置
  * 转换时透传它，保证转换结果与「直接用订阅链接导入」行为等价。
  * 仅对 Clash YAML 类输入有意义：URI 列表 / Base64 的 URI 列表不含 dns，返回 null。
@@ -722,3 +309,9 @@ function extractClashDns(content) {
   }
   return null;
 }
+
+module.exports = {
+  parseSubscription,
+  parseSubscriptionList,
+  extractClashDns
+};

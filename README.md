@@ -6,7 +6,7 @@
 
 ## 功能特性
 
-- **多协议解析** — 支持 8 种代理协议，自动识别 Base64 / YAML 格式
+- **多协议解析** — 支持 14 种代理协议，自动识别 Base64 / YAML 格式
 - **智能分组** — 根据节点名称自动识别 22 个地区，生成 url-test 分组
 - **17 组分流规则** — 覆盖 AI、流媒体、游戏、社交通讯等主流服务
 - **Web 配置界面** — 可视化管理过滤规则、分组策略、排除关键词
@@ -172,7 +172,20 @@ clash-sub-converter/
 │       ├── steam-download.json # 🎮 Steam 下载/联机
 │       └── mihoyo.json        # ⭕️💰 miHoYo
 ├── src/
-│   ├── parser.js              # 订阅解析器（8 种协议）
+│   ├── parser.js              # 订阅解析入口（格式识别 + 协议调度，14 种协议）
+│   ├── parser/                # 各协议解析器（按分类拆分）
+│   │   ├── utils.js           # 共用工具（safeDecodeURIComponent / parseSsUserInfo）
+│   │   ├── vmess.js           # VMess
+│   │   ├── ss.js              # Shadowsocks + ShadowsocksR
+│   │   ├── trojan.js          # Trojan
+│   │   ├── vless.js           # VLESS
+│   │   ├── hysteria.js        # Hysteria + Hysteria2
+│   │   ├── anytls.js          # AnyTLS
+│   │   ├── tuic.js            # TUIC
+│   │   ├── snell.js           # Snell
+│   │   ├── socks-http.js      # SOCKS5 + HTTP
+│   │   ├── wireguard.js       # WireGuard
+│   │   └── shadowquic.js      # ShadowQUIC
 │   ├── proxy-groups.js        # 智能代理分组
 │   ├── rule-manager.js        # 规则管理器
 │   ├── converter.js           # 转换引擎 → Clash YAML
@@ -273,8 +286,14 @@ curl "http://127.0.0.1:25500/sub?target=clash&ua=clash-verge%2Fv2.0.0&url=https:
 | Trojan | `trojan://` | WS / gRPC |
 | VLESS | `vless://` | WS / gRPC |
 | Hysteria2 | `hysteria2://` / `hy2://` | — |
+| Hysteria | `hysteria://` | UDP |
 | AnyTLS | `anytls://` | — |
 | TUIC | `tuic://` | QUIC |
+| Snell | `snell://` | — |
+| SOCKS5 | `socks5://` / `socks://` | — |
+| HTTP | `http://` / `https://` | TLS |
+| WireGuard | `wireguard://` / `wg://` | — |
+| ShadowQUIC | `shadowquic://` | QUIC |
 | Clash YAML | 含 `proxies:` 的完整配置 | — |
 
 ## 节点过滤

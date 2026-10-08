@@ -242,6 +242,73 @@ function convertToClash(proxies, options = {}) {
 }
 
 /**
+ * 生成单个节点的 Surge [Proxy] 行。
+ * @returns {string|null} Surge 不支持该协议时返回 null
+ */
+function surgeProxyLine(proxy) {
+  switch (proxy.type) {
+    case 'vmess': {
+      let line = `${proxy.name} = vmess, ${proxy.server}, ${proxy.port}, username=${proxy.uuid}`;
+      if (proxy.tls) line += ', tls=true';
+      if (proxy.sni) line += ', sni=' + proxy.sni;
+      return line;
+    }
+    case 'vless': {
+      let line = `${proxy.name} = vless, ${proxy.server}, ${proxy.port}, username=${proxy.uuid}`;
+      if (proxy.tls) line += ', tls=true';
+      // VLESS 内部用 servername（mihomo 字段名），Surge 用 sni
+      if (proxy.servername || proxy.sni) line += ', sni=' + (proxy.servername || proxy.sni);
+      return line;
+    }
+    case 'ss':
+      return `${proxy.name} = custom, ${proxy.server}, ${proxy.port}, ${proxy.cipher}, ${proxy.password}, https://github.com/crossutility/Quantumult-X/raw/master/Server-Churn-US.snippet`;
+    case 'trojan': {
+      let line = `${proxy.name} = trojan, ${proxy.server}, ${proxy.port}, password=${proxy.password}`;
+      if (proxy.sni) line += ', sni=' + proxy.sni;
+      return line;
+    }
+    case 'hysteria2': {
+      let line = `${proxy.name} = hysteria2, ${proxy.server}, ${proxy.port}, password=${proxy.password || proxy.auth || ''}`;
+      if (proxy.sni) line += ', sni=' + proxy.sni;
+      if (proxy['skip-cert-verify']) line += ', skip-cert-verify=true';
+      return line;
+    }
+    case 'tuic': {
+      let line = `${proxy.name} = tuic, ${proxy.server}, ${proxy.port}, uuid=${proxy.uuid}, password=${proxy.password || proxy.token || ''}`;
+      if (proxy.sni) line += ', sni=' + proxy.sni;
+      if (proxy['skip-cert-verify']) line += ', skip-cert-verify=true';
+      return line;
+    }
+    case 'snell': {
+      let line = `${proxy.name} = snell, ${proxy.server}, ${proxy.port}, psk=${proxy.psk}`;
+      if (proxy.version) line += ', version=' + proxy.version;
+      return line;
+    }
+    case 'socks5': {
+      let line = `${proxy.name} = socks5, ${proxy.server}, ${proxy.port}`;
+      if (proxy.username) line += ', username=' + proxy.username;
+      if (proxy.password) line += ', password=' + proxy.password;
+      if (proxy.tls) line += ', tls=true';
+      if (proxy.sni) line += ', sni=' + proxy.sni;
+      return line;
+    }
+    case 'http': {
+      let line = `${proxy.name} = http, ${proxy.server}, ${proxy.port}`;
+      if (proxy.username) line += ', username=' + proxy.username;
+      if (proxy.password) line += ', password=' + proxy.password;
+      if (proxy.tls) line += ', tls=true';
+      if (proxy.sni) line += ', sni=' + proxy.sni;
+      return line;
+    }
+    case 'wireguard':
+      return `${proxy.name} = wireguard, ${proxy.server}, ${proxy.port}, public-key=${proxy['public-key'] || ''}, private-key=${proxy['private-key'] || ''}, self-ip=${proxy.ip || ''}`;
+    default:
+      // ssr / anytls / hysteria / shadowquic 等 Surge 不支持的协议，静默跳过
+      return null;
+  }
+}
+
+/**
  * 将配置转换为 Surge 格式（简化版）
  *
  * 与 convertToClash 共用同一套用户配置解析与节点过滤：
@@ -262,47 +329,19 @@ function convertToSurge(proxies, options = {}) {
   lines.push('');
 
   lines.push('[Proxy]');
+  // 只收集真正写入 [Proxy] 的节点：Surge 不支持的协议被跳过，
+  // 若分组仍引用它们会产生悬空引用，Surge 会因未知代理名报错。
+  const surgeProxies = [];
   for (const proxy of activeProxies) {
-    let line;
-    switch (proxy.type) {
-      case 'vmess':
-        line = `${proxy.name} = vmess, ${proxy.server}, ${proxy.port}, username=${proxy.uuid}`;
-        if (proxy.tls) line += ', tls=true';
-        if (proxy.sni) line += ', sni=' + proxy.sni;
-        break;
-      case 'vless':
-        line = `${proxy.name} = vless, ${proxy.server}, ${proxy.port}, username=${proxy.uuid}`;
-        if (proxy.tls) line += ', tls=true';
-        // VLESS 内部用 servername（mihomo 字段名），Surge 用 sni
-        if (proxy.servername || proxy.sni) line += ', sni=' + (proxy.servername || proxy.sni);
-        break;
-      case 'ss':
-        line = `${proxy.name} = custom, ${proxy.server}, ${proxy.port}, ${proxy.cipher}, ${proxy.password}, https://github.com/crossutility/Quantumult-X/raw/master/Server-Churn-US.snippet`;
-        break;
-      case 'trojan':
-        line = `${proxy.name} = trojan, ${proxy.server}, ${proxy.port}, password=${proxy.password}`;
-        if (proxy.sni) line += ', sni=' + proxy.sni;
-        break;
-      case 'hysteria2':
-        line = `${proxy.name} = hysteria2, ${proxy.server}, ${proxy.port}, password=${proxy.password || proxy.auth || ''}`;
-        if (proxy.sni) line += ', sni=' + proxy.sni;
-        if (proxy['skip-cert-verify']) line += ', skip-cert-verify=true';
-        break;
-      case 'tuic':
-        line = `${proxy.name} = tuic, ${proxy.server}, ${proxy.port}, uuid=${proxy.uuid}, password=${proxy.password || proxy.token || ''}`;
-        if (proxy.sni) line += ', sni=' + proxy.sni;
-        if (proxy['skip-cert-verify']) line += ', skip-cert-verify=true';
-        break;
-      default:
-        // ssr / anytls 等 Surge 不支持的协议，静默跳过
-        continue;
-    }
-    if (line) lines.push(line);
+    const line = surgeProxyLine(proxy);
+    if (!line) continue;
+    lines.push(line);
+    surgeProxies.push(proxy);
   }
   lines.push('');
 
   lines.push('[Proxy Group]');
-  const groups = generateProxyGroups(activeProxies, { ...(options.proxyGroupOptions || {}), userGroups });
+  const groups = generateProxyGroups(surgeProxies, { ...(options.proxyGroupOptions || {}), userGroups });
   for (const group of groups) {
     const proxyList = group.proxies.join(', ');
     if (group.type === 'select') {
