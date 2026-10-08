@@ -4,6 +4,7 @@
 
 // ========== 全局状态 ==========
 var allNodes = []; // 最近一次转换的活跃节点 [{ name, domestic }]
+var allRegions = []; // 最近一次转换生成的地区分组名（启用地区分组时非空）
 var config = { groups: [], nodeFilter: 'all', excludeKeywords: [] };
 var conversionResult = null; // 最近一次转换结果 { yaml, summary }
 var uaPresets = []; // 订阅拉取 UA 预设（来自 /api/user-agents）
@@ -347,6 +348,7 @@ function doConvert() {
  */
 function applyNodeList(summary) {
 	allNodes = (summary && summary.nodes) || [];
+	allRegions = (summary && summary.regions) || [];
 	renderGroups();
 }
 
@@ -388,12 +390,26 @@ function showConversionResult(summary) {
 	} else {
 		summary.groups.forEach(function (g, i) {
 			var isSystem = g.type === 'system';
+			// url-test 是测速组，内核自动选最快节点 —— 它没有「默认出口」概念，
+			// 把首项标成默认出口会让人误以为可以指定，必须区分展示。
+			var isUrlTest = g.type === 'url-test';
 			var nodeCount = g.proxies ? g.proxies.length : 0;
-			var typeLabel = isSystem ? '系统规则' : esc(g.type || 'select');
-			var typeCls = 'result-group-type' + (isSystem ? ' result-group-system' : '');
+			var typeLabel = isSystem ? '系统规则' : isUrlTest ? '⚡ 自动测速' : '👆 手动选择';
+			var typeCls =
+				'result-group-type' +
+				(isSystem ? ' result-group-system' : isUrlTest ? ' result-group-urltest' : '');
 			var countText = isSystem
 				? ''
 				: '<span style="font-size:12px;color:#bbb">' + nodeCount + ' 节点</span>';
+			// 只有手动选择组才有默认出口；测速组改为一句说明
+			var hintText = '';
+			if (!isSystem) {
+				hintText = isUrlTest
+					? '<span class="result-group-hint">自动在组内选延迟最低的节点</span>'
+					: '<span class="result-group-hint">默认出口：' +
+						esc(g.defaultProxy || (g.proxies && g.proxies[0]) || '-') +
+						'</span>';
+			}
 			html +=
 				'<div class="result-group-card">' +
 				'<div class="result-group-header" onclick="toggleResultGroup(this)">' +
@@ -407,10 +423,12 @@ function showConversionResult(summary) {
 				typeLabel +
 				'</span>' +
 				countText +
+				hintText +
 				'</div>' +
 				'<div class="result-group-nodes">';
 			if (g.proxies) {
-				var defaultP = g.defaultProxy || g.proxies[0];
+				// 仅手动选择组标出默认出口；测速组高亮任意一项都是误导
+				var defaultP = isUrlTest || isSystem ? null : g.defaultProxy || g.proxies[0];
 				g.proxies.forEach(function (name) {
 					var cls = 'result-node-tag' + (name === defaultP ? ' result-node-default' : '');
 					html += '<span class="' + cls + '">' + esc(name) + '</span>';
@@ -524,30 +542,38 @@ function renderPresets() {
 // ========== 分组配置 ==========
 
 /**
+ * 「默认出口」下拉的候选。
+ * 后端采用两级结构：上层 select 分组的候选是地区分组（香港/台湾…），
+ * 因此这里必须与后端一致 —— 启用地区分组时只列地区，否则列具体节点。
+ */
+function getProxyOptions() {
+	var fixed = ['🚀 节点选择', '♻️ 自动选择', 'DIRECT'];
+	if (allRegions.length) return fixed.concat(allRegions);
+	return fixed.concat(getActiveNames());
+}
+
+/**
  * 分组列表。
  *
- * 列表里混着两类条目，语义不同，UI 必须区分开：
- *   真实分组    🍎 Apple 服务 / ⌨️ GitHub / 🇨🇳 中国大陆 …
- *               输出里存在同名 proxy-group，组内是「节点」。
- *   生成器      🌏 地区分组
- *               输出里**没有**这个名字，它批量生成 🇭🇰 香港 / 🇹🇼 台湾 …
- *               等一批分组，每个地区组才是真实分组。
- * 两者长得一样时用户必然误以为「香港、台湾」是地区分组下的节点选项，
- * 因此生成器单独渲染成一行说明 + 开关，不显示分组相关的下拉框。
+ * 列表里只有「真实分组」（🍎 Apple 服务 / ⌨️ GitHub / 🇨🇳 中国大陆 …）——
+ * 它们在输出里存在同名 proxy-group，组内是节点或地区分组。
+ *
+ * 「🌏 地区分组」不在此列：它是生成器而非分组（输出里没有这个名字），
+ * 单独渲染在列表上方的独立区域（见 renderRegionGenerator）。
  */
 function renderGroups() {
+	// 生成器与分组列表同属「分组区」，统一在此渲染，避免各调用点遗漏其中一个
+	renderRegionGenerator();
+
 	var list = document.getElementById('groupsList');
 	if (!config.groups || config.groups.length === 0) {
 		list.innerHTML = '<div class="empty-hint">加载配置中...</div>';
 		return;
 	}
-	var activeNames = getActiveNames();
 	var html = '';
 	config.groups.forEach(function (g, i) {
-		if (g.builtin === 'regions') {
-			html += renderRegionGenerator(g, i);
-			return;
-		}
+		// 生成器由 renderRegionGenerator 单独渲染，跳过
+		if (g.builtin === 'regions') return;
 
 		var mandatory = g.builtin === 'select' || g.builtin === 'auto' || g.builtin === 'fallback';
 		var enabled = mandatory ? true : g.enabled !== false;
@@ -557,7 +583,7 @@ function renderGroups() {
 				? '<span class="group-badge badge-builtin">内置</span>'
 				: '<span class="group-badge badge-rule">规则</span>';
 
-		var proxyOptions = ['🚀 节点选择', '♻️ 自动选择', 'DIRECT'].concat(activeNames);
+		var proxyOptions = getProxyOptions();
 
 		html +=
 			'<div class="group-card' +
@@ -638,48 +664,75 @@ function renderGroups() {
 }
 
 /**
- * 「🌏 地区分组」渲染成生成器行。
- * 它不是分组本身 —— 输出里没有这个名字，它批量生成香港/台湾/日本… 等地区分组。
- * 因此这里不显示「默认出口」（地区组只装本地区节点，无出口可选），
- * 「类型」改为对生成结果的描述（手动选择 / 自动测速），保留开关控制生成与否。
+ * 「🌏 地区分组」生成器 —— 渲染在「分组配置」卡片顶部的独立区域。
+ *
+ * 它不是分组本身：输出里没有这个名字，它批量生成 🇭🇰 香港 / 🇹🇼 台湾 … 等分组。
+ * 因此不显示「默认出口」（地区组只装本地区节点，无出口可选），
+ * 「类型」是对生成结果的描述（自动测速 / 手动选择），开关控制生成与否。
+ *
+ * 与分组列表视觉隔离：分组列表是用户常改的（默认出口等），生成器只改一次，
+ * 混在一起会让用户以为「香港、台湾」是它下面的节点选项。
  */
-function renderRegionGenerator(g, i) {
+function renderRegionGenerator() {
+	var box = document.getElementById('regionGenerator');
+	if (!box) return;
+
+	var idx = -1;
+	for (var k = 0; k < config.groups.length; k++) {
+		if (config.groups[k].builtin === 'regions') {
+			idx = k;
+			break;
+		}
+	}
+	if (idx < 0) {
+		box.innerHTML = '';
+		return;
+	}
+
+	var g = config.groups[idx];
 	var enabled = g.enabled !== false;
 
-	return (
-		'<div class="group-card group-card-generator' +
+	box.innerHTML =
+		'<div class="region-generator' +
 		(enabled ? '' : ' disabled') +
 		'">' +
-		'<span class="group-name">' +
+		'<div class="rg-head">' +
+		'<span class="rg-title">' +
 		esc(g.name) +
 		'</span>' +
 		'<span class="group-badge badge-generator">生成器</span>' +
-		'<span class="generator-hint">按节点名生成地区组，类型：</span>' +
-		'<select class="group-select" onchange="var g=config.groups[' +
-		i +
-		'];g.type=this.value;scheduleSave()" ' +
-		(enabled ? '' : 'disabled') +
-		'>' +
-		'<option value="url-test" ' +
-		(g.type !== 'select' ? 'selected' : '') +
-		'>自动测速</option>' +
-		'<option value="select" ' +
-		(g.type === 'select' ? 'selected' : '') +
-		'>手动选择</option>' +
-		'</select>' +
 		'<label class="group-toggle">' +
 		'<input type="checkbox" ' +
 		(enabled ? '' : 'checked') +
 		' onchange="toggleGroup(' +
-		i +
+		idx +
 		', !this.checked)">' +
 		'<span class="group-switch"></span>' +
 		'<span class="toggle-label">' +
 		(enabled ? '已启用' : '已禁用') +
 		'</span>' +
 		'</label>' +
-		'</div>'
-	);
+		'</div>' +
+		'<div class="rg-desc">' +
+		'按节点名自动归类，批量生成 🇭🇰 香港 / 🇹🇼 台湾 / 🇯🇵 日本… 等地区分组。' +
+		'这些地区分组会追加在上方分组之后，供「默认出口」选择。' +
+		'</div>' +
+		'<div class="rg-row">' +
+		'<span class="rg-label">生成的地区组类型</span>' +
+		'<select class="group-select" onchange="config.groups[' +
+		idx +
+		'].type=this.value;scheduleSave()" ' +
+		(enabled ? '' : 'disabled') +
+		'>' +
+		'<option value="url-test" ' +
+		(g.type !== 'select' ? 'selected' : '') +
+		'>⚡ 自动测速（组内选最快）</option>' +
+		'<option value="select" ' +
+		(g.type === 'select' ? 'selected' : '') +
+		'>👆 手动选择</option>' +
+		'</select>' +
+		'</div>' +
+		'</div>';
 }
 
 function toggleGroup(index, enabled) {

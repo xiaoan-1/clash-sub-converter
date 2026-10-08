@@ -239,6 +239,9 @@ function convertToClash(proxies, options = {}) {
 		// 一并返回 domestic 标记，前端就不必再抄一份国内关键词表
 		// （关键词表在 config/regions.json，抄过去的那一份必然与后端漂移）。
 		nodes: activeProxies.map(p => ({ name: p.name, domestic: isDomestic(p.name) })),
+		// 本次生成的地区分组名。两级结构下上层分组的候选是地区分组而非具体节点，
+		// 前端「默认出口」下拉必须据此列选项，否则用户会看到「香港」但选不到。
+		regions: proxyGroups.regionNames || [],
 		groups: groupList,
 	};
 

@@ -340,6 +340,16 @@ h3 {
 	background: #e6f7ff;
 	color: #1890ff;
 }
+.result-group-urltest {
+	background: #f6ffed;
+	color: #52c41a;
+	border: 1px solid #b7eb8f;
+}
+.result-group-hint {
+	font-size: 12px;
+	color: #999;
+	margin-left: auto;
+}
 .result-group-system {
 	background: #fff7e6;
 	color: #d46b08;
@@ -428,19 +438,57 @@ h3 {
 	background: #fffdf7;
 	border-style: dashed;
 }
-/* 「🌏 地区分组」是生成器而非真实分组，用虚线边框 + 中性色与普通分组区分 */
-.group-card-generator {
+/* 「🌏 地区分组」是生成器而非真实分组：独立成区，与下方分组列表用分隔线隔开 */
+.region-generator {
 	background: #fbfbfd;
-	border-style: dashed;
+	border: 1px dashed #c7c7f5;
+	border-radius: 8px;
+	padding: 14px 16px;
+}
+.region-generator.disabled {
+	opacity: 0.5;
+}
+.rg-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.rg-head .group-toggle {
+	margin-left: auto;
+}
+.rg-title {
+	font-size: 14px;
+	font-weight: 600;
+}
+.rg-desc {
+	font-size: 12px;
+	color: #999;
+	margin-top: 6px;
+	line-height: 1.7;
+}
+.rg-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 10px;
+}
+.rg-label {
+	font-size: 12px;
+	color: #666;
 }
 .badge-generator {
 	background: #f0f0ff;
 	color: #5b5bd6;
 	border: 1px solid #c7c7f5;
 }
-.generator-hint {
+/* 分组列表的标题行：与上方生成器形成视觉分区 */
+.groups-divider {
+	margin-top: 18px;
+	padding-top: 12px;
+	border-top: 1px solid #f0f0f0;
 	font-size: 12px;
 	color: #999;
+	padding-left: 4px;
 }
 .group-toggle {
 	display: flex;

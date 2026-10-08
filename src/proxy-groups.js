@@ -20,6 +20,8 @@ const CN_LABEL = regionsConfig.domestic.label; // '🇨🇳 中国大陆'
 const FIXED_OPTIONS = ['🚀 节点选择', '♻️ 自动选择', 'DIRECT'];
 /** url-test 分组的测速地址 */
 const TEST_URL = 'http://www.gstatic.com/generate_204';
+/** 名称里没有可识别地区关键词的节点归入此组，否则它们不会被任何分组引用 */
+const OTHER_LABEL = '🌐 其他地区';
 
 /**
  * 构建关键词匹配器。
@@ -118,9 +120,15 @@ function filterByExcludeKeywords(proxies, keywords) {
  * 关键词与国内/国际过滤。此处只负责「分类与组装」，不再重复过滤 ——
  * 两处各过滤一遍必然分叉，过滤只保留在 applyNodeFilters 一处。
  *
+ * 分组采用两级结构：上层 select 分组（节点选择 / 规则分组 / 漏网之鱼）的候选是
+ * **地区分组**而非上百个具体节点，用户在客户端先选地区、再在地区组里选节点。
+ * 地区分组未生成时（生成器关闭或无任何可识别地区）回退为直接列具体节点，
+ * 否则会出现「候选为空」或「国际节点无处可选」。
+ *
  * @param {Array} proxies - 已过滤的代理节点数组
  * @param {Object} options
  * @param {Array} options.userGroups - 用户分组配置（来自 config/default.json）
+ * @returns {Array} 分组数组，另带 `regionNames` 属性（本次生成的地区分组名）
  */
 function generateProxyGroups(proxies, options = {}) {
 	const { userGroups = [] } = options;
@@ -147,13 +155,53 @@ function generateProxyGroups(proxies, options = {}) {
 		else if (ug.ruleId) ruleMap.set(ug.ruleId, ug);
 	}
 
+	// ===== 地区归类（地区分组与上层分组的候选项共用）=====
+	// 上层 select 分组（节点选择 / 规则分组 / 漏网之鱼）的候选默认是**地区分组**
+	// 而非上百个具体节点：这是 Clash 的两级结构 —— 上层选地区，地区组内再选节点。
+	const regionMap = new Map(); // 地区标签 -> 节点名列表
+	const unclassified = []; // 名称里没有可识别地区关键词的节点
+	for (const name of activeProxies) {
+		const region = getRegion(name);
+		if (!region) {
+			unclassified.push(name);
+			continue;
+		}
+		// 国内节点由「🇨🇳 中国大陆」统一承载，不再单独建组
+		if (region === CN_LABEL) continue;
+		if (!regionMap.has(region)) regionMap.set(region, []);
+		regionMap.get(region).push(name);
+	}
+
+	const regionsCfg = builtinMap.get('regions');
+	const regionsEnabled = !regionsCfg || regionsCfg.enabled !== false;
+	const regionType = regionsCfg?.type || 'url-test';
+
+	const domesticCfg = builtinMap.get('domestic');
+	const domesticEnabled =
+		domesticProxies.size > 0 && (!domesticCfg || domesticCfg.enabled !== false);
+
+	// 无法识别地区的节点若不属于任何组，就彻底无法被选中（没有分组引用它们）
+	if (regionsEnabled && unclassified.length) {
+		regionMap.set(OTHER_LABEL, unclassified);
+	}
+
+	// 地区分组清单：中国大陆排前，其余按出现顺序。供前端「默认出口」下拉使用
+	const regionNames = [];
+	if (domesticEnabled) regionNames.push(CN_LABEL);
+	if (regionsEnabled) regionNames.push(...regionMap.keys());
+
+	// 只有「地区分组确实生成了」才用地区分组当候选：生成器关闭时 regionNames
+	// 可能只剩「中国大陆」，用它当候选会让国际节点无处可选。
+	const useRegionCandidates = regionsEnabled && regionMap.size > 0;
+	const candidates = useRegionCandidates ? regionNames : activeProxies;
+
 	const groups = [];
 
 	// 1. 🚀 节点选择（必须，不可禁用）
 	groups.push({
 		name: '🚀 节点选择',
 		type: 'select',
-		proxies: ['♻️ 自动选择', 'DIRECT', ...activeProxies],
+		proxies: ['♻️ 自动选择', 'DIRECT', ...candidates],
 	});
 
 	// 2. ♻️ 自动选择（必须，不可禁用）
@@ -177,36 +225,25 @@ function generateProxyGroups(proxies, options = {}) {
 	});
 
 	// 3. 🇨🇳 中国大陆（可选，仅在有国内节点时出现）
-	if (domesticProxies.size > 0) {
-		const domesticCfg = builtinMap.get('domestic');
-		if (!domesticCfg || domesticCfg.enabled !== false) {
-			// 类型与默认出口跟随界面配置：原实现写死 select + DIRECT，
-			// 界面上的两个下拉框选了也不生效。
-			const defProxy = domesticCfg?.defaultProxy || 'DIRECT';
-			const otherOptions = FIXED_OPTIONS.filter(o => o !== defProxy);
-			groups.push({
-				name: CN_LABEL,
-				type: domesticCfg?.type || 'select',
-				proxies: [defProxy, ...otherOptions, ...domesticProxies],
-			});
-		}
+	if (domesticEnabled) {
+		// 类型与默认出口跟随界面配置：原实现写死 select + DIRECT，
+		// 界面上的两个下拉框选了也不生效。
+		const defProxy = domesticCfg?.defaultProxy || 'DIRECT';
+		const otherOptions = FIXED_OPTIONS.filter(o => o !== defProxy);
+		groups.push({
+			name: CN_LABEL,
+			type: domesticCfg?.type || 'select',
+			proxies: [defProxy, ...otherOptions, ...domesticProxies],
+		});
 	}
 
-	// 4. 地区分组（可选，默认开）：按地区标签归类，只对出现过的地区建组
+	// 4. 地区分组（可选，默认开）：按地区标签归类，只对出现过的地区建组。
 	//    界面上的「🌏 地区分组」是生成器而非分组本身，其 type 决定生成出来的
 	//    每个地区组是手动选择还是自动测速；地区组只装本地区节点，故没有默认出口。
-	const regionsCfg = builtinMap.get('regions');
-	const regionsEnabled = !regionsCfg || regionsCfg.enabled !== false;
+	//    先收集、最后追加：客户端按数组顺序展示分组，地区组数量多且很少改动，
+	//    排在常用分组（节点选择 / 规则组 / 漏网之鱼）之后更便于查找。
+	const regionGroups = [];
 	if (regionsEnabled) {
-		const regionType = regionsCfg?.type || 'url-test';
-		const regionMap = new Map(); // 地区标签 -> 节点名列表
-		for (const name of activeProxies) {
-			const region = getRegion(name);
-			// 国内节点由「🇨🇳 中国大陆」统一承载，不再单独建组
-			if (!region || region === CN_LABEL) continue;
-			if (!regionMap.has(region)) regionMap.set(region, []);
-			regionMap.get(region).push(name);
-		}
 		for (const [label, names] of regionMap) {
 			const group = { name: label, type: regionType, proxies: names };
 			// 测速参数只对 url-test 有意义，select 组带上会被内核忽略但也算脏数据
@@ -215,7 +252,7 @@ function generateProxyGroups(proxies, options = {}) {
 				group.interval = 300;
 				group.tolerance = 50;
 			}
-			groups.push(group);
+			regionGroups.push(group);
 		}
 		if (regionMap.size) {
 			log.debug('地区分组生成', {
@@ -243,24 +280,34 @@ function generateProxyGroups(proxies, options = {}) {
 		groups.push({
 			name: ruleCfg?.name || rc.name,
 			type: ruleCfg?.type || rc.type || 'select',
-			proxies: [defProxy, ...otherOptions, ...activeProxies],
+			proxies: [defProxy, ...otherOptions, ...candidates],
 			defaultProxy: defProxy,
 		});
 	}
 
 	// 6. 🐟 漏网之鱼（必须，不可禁用）
+	//    首项仍为「🚀 节点选择」（沿用跟随全局选择的传统默认行为），
+	//    但额外补上「♻️ 自动选择」：否则用户想让它直接全局自动时只能绕经
+	//    「节点选择」，多一跳且受该组当前状态影响。
 	groups.push({
 		name: '🐟 漏网之鱼',
 		type: 'select',
-		proxies: ['🚀 节点选择', 'DIRECT', ...activeProxies],
+		proxies: ['🚀 节点选择', '♻️ 自动选择', 'DIRECT', ...candidates],
 	});
+
+	// 7. 地区分组统一追加在最后（见第 4 步说明）
+	groups.push(...regionGroups);
 
 	log.info('分组生成完成', {
 		groups: groups.length,
 		list: groups.map(g => `${g.name}(${g.type},${g.proxies.length})`),
 	});
 
-	return sanitizeGroupRefs(groups, activeProxies);
+	const result = sanitizeGroupRefs(groups, activeProxies);
+	// 地区分组清单挂在数组上供 converter 生成 summary（前端「默认出口」下拉要用）。
+	// 数组自带属性不会被 yaml.dump 序列化，不影响输出。
+	result.regionNames = regionNames;
+	return result;
 }
 
 /** 内核内置的代理名，无需在 groups 中定义 */
@@ -305,4 +352,5 @@ module.exports = {
 	filterByExcludeKeywords,
 	sanitizeGroupRefs,
 	CN_LABEL,
+	OTHER_LABEL,
 };
