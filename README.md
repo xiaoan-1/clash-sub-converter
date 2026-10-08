@@ -236,6 +236,38 @@ TRUST_PROXY: 'loopback',     // 只信任来自回环地址的代理头
 > 「信任**所有**跳」，`req.ip` 会取 `X-Forwarded-For` 的**最左**值 —— 那正是客户端自己填的
 > 那一项，任何人都能伪造 IP 冒充他人配置。
 
+#### Nginx 配置示例
+
+```nginx
+# 挂在域名根下
+location / {
+    proxy_pass http://127.0.0.1:25500;
+    proxy_set_header Host              $host;      # 必须保留原始 Host
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;      # 写接口的来源校验会用到
+    proxy_read_timeout 60s;                        # 订阅拉取最慢 15s，留足余量
+}
+
+# 挂在子路径（配合 BASE_PATH=/clash）
+location /clash {
+    proxy_pass http://127.0.0.1:25500/clash;       # 结尾必须带同样的前缀
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;
+}
+```
+
+> ⚠️ **`Host` 与 `X-Forwarded-Host` 都要保留原始域名**。写接口会校验
+> 「`Origin` 是否与本站 host 一致」来防 CSRF；若代理把 Host 改写成 `127.0.0.1`，
+> 页面发出的写请求会被判定为跨站而返回 403（配置保存不了）。
+
+> ⚠️ 子路径部署时 `proxy_pass` **结尾必须带 `/clash`**（与 `BASE_PATH` 一致）。
+> 写成 `proxy_pass http://127.0.0.1:25500;` 会导致服务收到 `/xxx` 而非 `/clash/xxx`，全部 404。
+
 ### 已知限制
 
 同一出口 IP 的人**共用一份配置**（家里多台设备、公司 NAT 出口都一样）—— 这是按 IP

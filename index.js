@@ -68,6 +68,29 @@ app.use(express.json({ limit: BODY_LIMIT }));
 // 这样内部路径（/cfg、/api/...、/sub）无论部署在哪一级都不用改。
 const router = express.Router();
 
+/**
+ * 基础安全响应头。
+ *
+ * 不引入 helmet 之类的依赖（本项目零运行时依赖），只加真正有意义的几条：
+ *   - X-Content-Type-Options: nosniff
+ *     阻止浏览器把响应「嗅探」成别的类型。订阅正文是用户可控内容，
+ *     缺了这条时某些浏览器可能把 text/yaml 当 HTML 执行。
+ *   - X-Frame-Options: DENY + CSP frame-ancestors 'none'
+ *     阻止配置页被第三方站点用 iframe 嵌套（点击劫持 —— 诱导用户在
+ *     看不见的 iframe 里改配置）。
+ *   - Referrer-Policy: no-referrer
+ *     订阅地址常把 token 放在路径/查询串里，避免它随 Referer 泄漏给第三方。
+ *
+ * 不加 CSP script-src：页面用了内联 onclick，加严格 CSP 会直接白屏，
+ * 而这里没有外部脚本注入面，收益不抵风险。
+ */
+router.use((req, res, next) => {
+	res.setHeader('X-Content-Type-Options', 'nosniff');
+	res.setHeader('X-Frame-Options', 'DENY');
+	res.setHeader('Referrer-Policy', 'no-referrer');
+	next();
+});
+
 router.use(express.static(path.join(__dirname, 'web')));
 
 /**
@@ -95,18 +118,31 @@ router.use('/sub', (req, res, next) => {
  * 因此「Origin 存在但与本站 host 不符」即可判定为跨站写请求，直接拒绝。
  * 无 Origin（curl / OpenClash / 服务端调用）不拦 —— 它们本就不是浏览器，
  * 不存在被第三方页面诱导的问题。
+ *
+ * host 的取值优先级：X-Forwarded-Host > Host。
+ * 反向代理若把 Host 改写成上游地址（如 proxy_set_header Host 127.0.0.1），
+ * 只用 Host 会导致「Origin 是真实域名」的正常写请求被误判成跨站而 403。
+ * X-Forwarded-Host 是反代透传原始 Host 的标准头，优先用它即可避免误拒。
+ * 注意这不降低安全性：攻击者要绕过仍须让浏览器发出的 Origin 与这两个头之一
+ * 完全一致，而浏览器不允许脚本伪造这两者中的任何一个。
  */
 function guardWriteOrigin(req, res, next) {
 	if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
 	const origin = req.get('origin');
 	if (!origin) return next();
-	let host;
+
+	let originHost;
 	try {
-		host = new URL(origin).host;
+		originHost = new URL(origin).host;
 	} catch {
 		return res.status(403).json({ error: '来源非法（Origin 无法解析）' });
 	}
-	if (host !== req.get('host')) {
+
+	// X-Forwarded-Host 可能是逗号分隔的多跳列表，取第一个（最靠近客户端的那一跳）
+	const forwarded = (req.get('x-forwarded-host') || '').split(',')[0].trim();
+	const candidates = [forwarded, req.get('host')].filter(Boolean);
+
+	if (!candidates.includes(originHost)) {
 		return res.status(403).json({ error: '跨站写入被拒绝（Origin 与本站不符）' });
 	}
 	next();

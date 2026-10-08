@@ -6,6 +6,9 @@
  * 新增/修改规则组时改配置即可，无需改代码。
  */
 const { ruleManager, ALWAYS_ON_RULE_ID } = require('./rule-manager');
+const logger = require('./logger');
+
+const log = logger.create('rules');
 
 /**
  * 规则组别名映射（OpenClash include/exclude 匹配用）
@@ -86,9 +89,36 @@ function patternMatchGroup(pattern, groupKey, aliases) {
 }
 
 /**
+ * include / exclude 的最大长度。
+ *
+ * 这两个参数来自 URL 查询串，是外部可控输入。Node 的 maxHeaderSize 默认 16KB，
+ * 单参数实际最多约 16KB，此时编译 + 匹配约 9ms —— 尚可接受但不该放任：
+ * 多个请求叠加会累积成事件循环阻塞。真实场景里 include 是一串规则组名
+ * （如 `openai,netflix`），几百字符足够，这里给个宽松但有界的上限。
+ */
+const MAX_PATTERN_LEN = 2000;
+
+/** 超长的 include/exclude 直接忽略（记一条 warn），而不是让正则引擎去啃 */
+function sanitizePattern(raw) {
+	if (!raw) return '';
+	const s = String(raw).trim();
+	if (s.length <= MAX_PATTERN_LEN) return s;
+	log.warn('include/exclude 过长，已忽略', {
+		length: s.length,
+		limit: MAX_PATTERN_LEN,
+		sample: s.slice(0, 60),
+	});
+	return '';
+}
+
+/**
  * 解析 OpenClash 发送的 include/exclude 正则，映射到内部规则组
  */
 function parseRuleOptions(include, exclude) {
+	// 先做长度裁剪：后续每次 patternMatchGroup 都要 new RegExp，超长模式纯属浪费
+	include = sanitizePattern(include);
+	exclude = sanitizePattern(exclude);
+
 	const ruleKeys = ruleGroupKeys();
 	const ruleOptions = {};
 
