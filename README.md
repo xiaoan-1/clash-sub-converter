@@ -150,8 +150,7 @@ clash-sub-converter/
 ├── config.json                # 站点基准配置（管理员用，仅存差异，被 .gitignore 忽略）
 ├── guests/                    # 访客配置（一个访客一个文件，被 .gitignore 忽略）
 ├── config/
-│   ├── default.json           # 基准配置（21 个分组定义，纳入版本控制）
-│   ├── regions.json           # 地区分组（22 个地区）
+│   ├── default.json           # 基准配置（21 个分组定义，纳入版本控制）│   ├── agent.json             # 订阅拉取的 UA 预设与客户端特征│   ├── regions.json           # 地区分组（22 个地区）
 │   └── rules/                 # 分流规则（18 个 JSON 文件）
 │       ├── common.json        # 系统规则（本地路由，始终生效）
 │       ├── apple.json         # 🍎 Apple 服务
@@ -192,7 +191,7 @@ clash-sub-converter/
 │   ├── user/                  # 用户 / 访客管理
 │   │   ├── user-config.js     # 配置读写（default.json + config.json + 访客配置 三层合并）
 │   │   ├── guests.js          # 访客识别（IP / ADMIN_IPS / TRUST_PROXY）与访客配置文件管理
-│   │   └── user-agents.js     # 拉取订阅的 UA 预设与解析
+│   │   └── user-agents.js     # 拉取订阅的 UA 预设与解析（读 config/agent.json）
 │   ├── logger.js              # 日志（写 logs/，分级 + 请求编号 + URL 脱敏）
 │   ├── fetcher.js             # 订阅拉取 + 错误诊断 + 元信息响应头转发
 │   ├── rule-groups.js         # 规则组别名与 include/exclude 匹配

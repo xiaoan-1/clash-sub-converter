@@ -1,0 +1,104 @@
+{
+  "defaultId": "clash-verge",
+  "fallbackUa": "clash-verge/v2.0.0",
+  "proxyUaPatterns": [
+    "clash", "mihomo", "verge", "stash", "shadowrocket", "quantumult", "surge",
+    "sing-box", "singbox", "v2ray", "v2fly", "xray", "nekobox", "nekoray",
+    "hiddify", "loon", "karing", "flclash", "matsuri", "passwall", "openwrt",
+    "sub-store", "substore", "shadowsocks", "trojanc", "naive"
+  ],
+  "presets": [
+    {
+      "id": "auto",
+      "name": "跟随调用方（推荐）",
+      "platform": "自动",
+      "ua": "",
+      "note": "透传代理客户端的 UA；浏览器 / curl 等非客户端请求回退到 Clash Verge"
+    },
+    {
+      "id": "clash-verge",
+      "name": "Clash Verge / Rev",
+      "platform": "Windows · macOS · Linux",
+      "ua": "clash-verge/v2.4.7"
+    },
+    {
+      "id": "openclash",
+      "name": "OpenClash",
+      "platform": "OpenWrt · iStoreOS",
+      "ua": "OpenClash/v0.46.0"
+    },
+    {
+      "id": "mihomo",
+      "name": "mihomo / Clash.Meta",
+      "platform": "内核通用",
+      "ua": "mihomo/1.18.0"
+    },
+    {
+      "id": "clash-for-windows",
+      "name": "Clash for Windows",
+      "platform": "Windows",
+      "ua": "ClashforWindows/0.20.39"
+    },
+    {
+      "id": "clash-for-android",
+      "name": "Clash for Android",
+      "platform": "Android",
+      "ua": "ClashForAndroid/2.5.12"
+    },
+    {
+      "id": "clashx",
+      "name": "ClashX / ClashX Pro",
+      "platform": "macOS",
+      "ua": "ClashX/1.118.0"
+    },
+    {
+      "id": "stash",
+      "name": "Stash",
+      "platform": "iOS · macOS",
+      "ua": "Stash/2.5.0"
+    },
+    {
+      "id": "shadowrocket",
+      "name": "Shadowrocket",
+      "platform": "iOS",
+      "ua": "Shadowrocket/2.2.20"
+    },
+    {
+      "id": "quantumultx",
+      "name": "Quantumult X",
+      "platform": "iOS",
+      "ua": "Quantumult%20X/1.0.30"
+    },
+    {
+      "id": "surge",
+      "name": "Surge",
+      "platform": "iOS · macOS",
+      "ua": "Surge/5.8.0"
+    },
+    {
+      "id": "sing-box",
+      "name": "sing-box",
+      "platform": "通用",
+      "ua": "sing-box/1.8.0"
+    },
+    {
+      "id": "v2rayn",
+      "name": "v2rayN",
+      "platform": "Windows",
+      "ua": "v2rayN/6.0"
+    },
+    {
+      "id": "clash",
+      "name": "Clash（原版）",
+      "platform": "通用",
+      "ua": "clash/1.18.0"
+    },
+    {
+      "id": "custom",
+      "name": "自定义",
+      "platform": "手动填写",
+      "ua": "",
+      "note": "填入抓包得到的真实 UA 最准确"
+    }
+  ]
+}

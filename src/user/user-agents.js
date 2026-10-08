@@ -15,111 +15,58 @@
  *   <预设> —— 固定使用某个客户端的 UA。
  *   custom —— 手动填写（抓包得到的真实 UA 最准确）。
  *
+ * 预设列表与判定规则定义在 `config/agent.json`（配置驱动）：
+ *   defaultId        默认预设 id（调用方 UA 不可用时用它）
+ *   fallbackUa       最终兜底 UA（预设缺失时的最后一道防线）
+ *   proxyUaPatterns  代理客户端 UA 特征（auto 模式据此判断是否透传调用方 UA）
+ *   presets          可选预设列表
+ * 增删预设改配置即可，无需改代码。
+ *
  * 注意：预设中的版本号只是常见取值。机场通常只做粗粒度匹配
  * （如包含 "clash-verge" / "OpenClash" / "ClashForAndroid"），
  * 若你的机场校验更严格，请用「自定义」填写真实 UA。
  */
 
-/** 默认预设（调用方 UA 不可用时的兜底） */
-const DEFAULT_UA_ID = 'clash-verge';
+const fs = require('fs');
+const path = require('path');
+const logger = require('../logger');
 
-/** 最终兜底 UA */
-const FALLBACK_UA = 'clash-verge/v2.0.0';
+const log = logger.create('user-agents');
 
-const UA_PRESETS = [
-  {
-    id: 'auto',
-    name: '跟随调用方（推荐）',
-    platform: '自动',
-    ua: '',
-    note: '透传代理客户端的 UA；浏览器 / curl 等非客户端请求回退到 Clash Verge',
-  },
-  {
-    id: 'clash-verge',
-    name: 'Clash Verge / Rev',
-    platform: 'Windows · macOS · Linux',
-    ua: 'clash-verge/v2.4.7',
-  },
-  {
-    id: 'openclash',
-    name: 'OpenClash',
-    platform: 'OpenWrt · iStoreOS',
-    ua: 'OpenClash/v0.46.0',
-  },
-  {
-    id: 'mihomo',
-    name: 'mihomo / Clash.Meta',
-    platform: '内核通用',
-    ua: 'mihomo/1.18.0',
-  },
-  {
-    id: 'clash-for-windows',
-    name: 'Clash for Windows',
-    platform: 'Windows',
-    ua: 'ClashforWindows/0.20.39',
-  },
-  {
-    id: 'clash-for-android',
-    name: 'Clash for Android',
-    platform: 'Android',
-    ua: 'ClashForAndroid/2.5.12',
-  },
-  {
-    id: 'clashx',
-    name: 'ClashX / ClashX Pro',
-    platform: 'macOS',
-    ua: 'ClashX/1.118.0',
-  },
-  {
-    id: 'stash',
-    name: 'Stash',
-    platform: 'iOS · macOS',
-    ua: 'Stash/2.5.0',
-  },
-  {
-    id: 'shadowrocket',
-    name: 'Shadowrocket',
-    platform: 'iOS',
-    ua: 'Shadowrocket/2.2.20',
-  },
-  {
-    id: 'quantumultx',
-    name: 'Quantumult X',
-    platform: 'iOS',
-    ua: 'Quantumult%20X/1.0.30',
-  },
-  {
-    id: 'surge',
-    name: 'Surge',
-    platform: 'iOS · macOS',
-    ua: 'Surge/5.8.0',
-  },
-  {
-    id: 'sing-box',
-    name: 'sing-box',
-    platform: '通用',
-    ua: 'sing-box/1.8.0',
-  },
-  {
-    id: 'v2rayn',
-    name: 'v2rayN',
-    platform: 'Windows',
-    ua: 'v2rayN/6.0',
-  },
-  {
-    id: 'clash',
-    name: 'Clash（原版）',
-    platform: '通用',
-    ua: 'clash/1.18.0',
-  },
-  {
-    id: 'custom',
-    name: '自定义',
-    platform: '手动填写',
-    ua: '',
-    note: '填入抓包得到的真实 UA 最准确',
-  },
-];
+const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'agent.json');
+
+/** 内置兜底，配置文件缺失/损坏时使用 */
+const BUILTIN = {
+  defaultId: 'clash-verge',
+  fallbackUa: 'clash-verge/v2.0.0',
+  proxyUaPatterns: [],
+  presets: [],
+};
+
+/** 读取并校验配置，异常时回退内置值 */
+function loadConfig() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    return {
+      defaultId: raw.defaultId || BUILTIN.defaultId,
+      fallbackUa: raw.fallbackUa || BUILTIN.fallbackUa,
+      proxyUaPatterns: Array.isArray(raw.proxyUaPatterns) ? raw.proxyUaPatterns : [],
+      presets: Array.isArray(raw.presets) ? raw.presets.filter(p => p && p.id) : [],
+    };
+  } catch (err) {
+    log.warn('UA 预设配置读取失败，已回退内置默认值', {
+      path: CONFIG_PATH,
+      reason: err.message,
+    });
+    return { ...BUILTIN };
+  }
+}
+
+const CONFIG = loadConfig();
+
+const UA_PRESETS = CONFIG.presets;
+const DEFAULT_UA_ID = CONFIG.defaultId;
+const FALLBACK_UA = CONFIG.fallbackUa;
 
 const PRESET_MAP = new Map(UA_PRESETS.map(p => [p.id, p]));
 
@@ -140,23 +87,20 @@ function isBrowserUA(ua) {
 }
 
 /**
- * 已知代理客户端的 UA 特征。
+ * 已知代理客户端的 UA 特征（来自 config/agent.json 的 proxyUaPatterns）。
  *
  * auto 模式只透传匹配这些特征的调用方 UA —— 否则会把 `node`、`curl/8.x`、
  * `python-requests` 这类通用 UA 转发给机场，在机场看来更像“订阅地址泄漏”。
  */
-const PROXY_UA_PATTERN = new RegExp([
-  'clash', 'mihomo', 'verge', 'stash', 'shadowrocket', 'quantumult', 'surge',
-  'sing-box', 'singbox', 'v2ray', 'v2fly', 'xray', 'nekobox', 'nekoray',
-  'hiddify', 'loon', 'karing', 'flclash', 'matsuri', 'passwall', 'openwrt',
-  'sub-store', 'substore', 'shadowsocks', 'trojanc', 'naive',
-].join('|'), 'i');
+const PROXY_UA_PATTERN = CONFIG.proxyUaPatterns.length
+  ? new RegExp(CONFIG.proxyUaPatterns.join('|'), 'i')
+  : null;
 
 /** 调用方 UA 是否来自已知代理客户端 */
 function isProxyClientUA(ua) {
   const s = String(ua || '').trim();
   if (!s || isBrowserUA(s)) return false;
-  return PROXY_UA_PATTERN.test(s);
+  return PROXY_UA_PATTERN ? PROXY_UA_PATTERN.test(s) : false;
 }
 
 /** 列出预设（供前端使用） */
