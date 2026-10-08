@@ -2,8 +2,7 @@ const express = require('express');
 const { fetchSubscription } = require('../src/fetcher');
 const { readConfig, saveConfig } = require('../src/user/user-config');
 const { listPresets, resolveUserAgent, sanitizeUa } = require('../src/user/user-agents');
-const { parseSubscription, parseSubscriptionList, extractClashDns } = require('../src/parser');
-const { isDomestic, CN_LABEL } = require('../src/proxy-groups');
+const { parseSubscriptionList, extractClashDns } = require('../src/parser');
 const { convertToClash } = require('../src/converter');
 const guests = require('../src/user/guests');
 const logger = require('../src/logger');
@@ -60,80 +59,6 @@ function sendConvertError(res, err, tag) {
 	log.fail(`${tag} 转换失败`, err);
 	res.status(500).json({ error: '转换失败: ' + err.message });
 }
-
-// ===================== 订阅解析 =====================
-
-/**
- * POST /api/parse
- * 请求体: { url: "订阅地址" }
- * 返回: { nodes: [{ name, type, region }, ...] }
- */
-router.post('/parse', async (req, res) => {
-	try {
-		const { url, userAgent } = req.body;
-		log.info('POST /api/parse', { url: logger.safeUrl(url), hasUa: !!userAgent });
-		if (!url) {
-			log.warn('POST /api/parse 缺少 url 参数');
-			return res.status(400).json({ error: '缺少 url 参数' });
-		}
-
-		const uaOpts = uaOptions(req, userAgent);
-		log.debug('拉取 UA 已确定', { ua: uaOpts.userAgent, 'ua-source': uaOpts.uaSource });
-		const content = await fetchSubscription(url, uaOpts);
-		const proxies = parseSubscription(content);
-
-		const nodes = proxies.map(p => ({
-			name: p.name,
-			type: p.type,
-			region: isDomestic(p.name) ? CN_LABEL : '🌐 其他',
-		}));
-
-		log.info('POST /api/parse 完成', { nodes: nodes.length });
-		res.json({ nodes, total: nodes.length });
-	} catch (err) {
-		sendConvertError(res, err, '[api/parse]');
-	}
-});
-
-// ===================== 文件转换 =====================
-
-/**
- * POST /api/convert-file
- * 请求体: { content: "原始的订阅 YAML/base64 内容" }
- * 返回: { yaml: "转换后的 Clash YAML" }
- */
-router.post('/convert-file', (req, res) => {
-	try {
-		const { content } = req.body;
-		log.info('POST /api/convert-file', {
-			bytes: content ? logger.formatBytes(Buffer.byteLength(content, 'utf-8')) : 0,
-		});
-		if (!content || !content.trim()) {
-			log.warn('POST /api/convert-file 缺少文件内容');
-			return res.status(400).json({ error: '缺少文件内容' });
-		}
-
-		const proxies = parseSubscription(content);
-		if (proxies.length === 0) {
-			log.warn('POST /api/convert-file 未找到有效代理节点');
-			return res.status(400).json({ error: '未找到有效代理节点' });
-		}
-
-		// 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
-		const convertOptions = { guestId: guests.guestIdFrom(req) };
-		const srcDns = extractClashDns(content);
-		if (srcDns) convertOptions.dns = srcDns;
-
-		const result = convertToClash(proxies, convertOptions);
-		log.info('POST /api/convert-file 完成', {
-			proxies: proxies.length,
-			dns: srcDns ? '有' : '无',
-		});
-		res.json({ yaml: result.yaml, count: proxies.length });
-	} catch (err) {
-		sendConvertError(res, err, '[api/convert-file]');
-	}
-});
 
 // ===================== 完整转换（支持多URL + 过滤参数） =====================
 

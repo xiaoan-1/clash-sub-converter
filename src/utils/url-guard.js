@@ -85,4 +85,4 @@ function validateSubscriptionUrl(raw) {
 	return { ok: true, url: url.toString() };
 }
 
-module.exports = { validateSubscriptionUrl, isPrivateIPv4, isPrivateHostname, allowPrivateUrl };
+module.exports = { validateSubscriptionUrl };

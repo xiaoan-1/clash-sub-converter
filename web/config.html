@@ -136,6 +136,11 @@
 						转换器代拉订阅时发送的客户端标识（User-Agent）。若与实际客户端不一致，
 						机场可能判定为「非本人操作 / 订阅地址泄漏」而作废订阅地址。
 					</div>
+					<div class="kw-hint">
+						选「跟随调用方」时，仅当请求确实来自代理客户端（Clash / OpenClash / sing-box
+						等） 才原样透传其 UA；浏览器 / curl 等非客户端请求会回退到 Clash Verge，
+						避免把通用 UA 转给机场而暴露「这不是客户端在拉取」。
+					</div>
 					<div class="ua-row">
 						<label class="ua-label" for="uaSelect">客户端标识</label>
 						<select id="uaSelect" class="group-select" onchange="onUaChange()"></select>

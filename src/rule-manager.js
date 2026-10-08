@@ -139,60 +139,12 @@ class RuleManager {
 
 		return rules;
 	}
-
-	/**
-	 * 添加规则配置
-	 */
-	add(config) {
-		if (!config.id || !config.name || !Array.isArray(config.rules)) {
-			throw new Error('无效的规则配置：需要 id, name, rules');
-		}
-		if (this.rules.has(config.id)) {
-			throw new Error(`规则 ${config.id} 已存在`);
-		}
-		this.rules.set(config.id, config);
-		this._save(config.id);
-		return config;
-	}
-
-	/**
-	 * 更新规则配置
-	 */
-	update(id, data) {
-		const existing = this.rules.get(id);
-		if (!existing) throw new Error(`规则 ${id} 不存在`);
-
-		const updated = { ...existing, ...data, id }; // id 不可变
-		this.rules.set(id, updated);
-		this._save(id);
-		return updated;
-	}
-
-	/**
-	 * 删除规则配置
-	 */
-	remove(id) {
-		if (!this.rules.has(id)) throw new Error(`规则 ${id} 不存在`);
-		this.rules.delete(id);
-		const filePath = path.join(RULES_DIR, `${id}.json`);
-		if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-	}
-
-	/**
-	 * 保存单个规则到磁盘
-	 */
-	_save(id) {
-		const config = this.rules.get(id);
-		if (!fs.existsSync(RULES_DIR)) fs.mkdirSync(RULES_DIR, { recursive: true });
-		fs.writeFileSync(
-			path.join(RULES_DIR, `${id}.json`),
-			JSON.stringify(config, null, 2),
-			'utf-8',
-		);
-	}
 }
 
-// 单例
+// 规则是「基准配置」：新增 / 修改 / 删除一律直接编辑 config/rules/*.json，
+// 服务重启后由 loadAll() 重新加载。此处不提供写方法 —— 曾经有过 add / update /
+// remove 与配套的 /api/rules 接口，但规则属部署决策（改文件即生效、可纳入版本控制），
+// 走 HTTP 写入既无必要也绕过了 git；接口移除后这些方法成了死代码，一并删掉。
 const ruleManager = new RuleManager();
 
-module.exports = { RuleManager, ruleManager, ALWAYS_ON_RULE_ID };
+module.exports = { ruleManager, ALWAYS_ON_RULE_ID };

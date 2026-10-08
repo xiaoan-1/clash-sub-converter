@@ -319,5 +319,4 @@ module.exports = {
 	requestSubscription,
 	fetchSubscription,
 	applySubscriptionHeaders,
-	SUBSCRIBE_TIMEOUT_MS,
 };

@@ -350,7 +350,5 @@ module.exports = {
 	getRegion,
 	normalizeExcludeKeywords,
 	filterByExcludeKeywords,
-	sanitizeGroupRefs,
 	CN_LABEL,
-	OTHER_LABEL,
 };

@@ -71,7 +71,7 @@ router.get('/', async (req, res) => {
 			target,
 			urls: urls.length,
 			client,
-			scope: scope.guest || '站点基准',
+			scope: scope.guest,
 			'caller-ua': callerUA || '(空)',
 			mode: ua ? 'query' : fetchCfg.userAgent || 'auto',
 			'send-ua': fetchOpts.userAgent,

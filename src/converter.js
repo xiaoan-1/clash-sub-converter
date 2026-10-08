@@ -31,9 +31,10 @@ class AllProxiesFilteredError extends Error {
  * options 显式传入的优先（API 可以按请求覆盖），否则回退到配置文件。
  * Clash 与 Surge 共用，保证两个入口的过滤/分组策略一致。
  *
- * options.guestId 决定读哪一份配置：null/未传 = 站点基准，否则读该访客的配置。
+ * options.guestId 决定读哪一份配置：传访客 ID = default.json + 该访客的差异；
+ * 省略 / null = 仅 default.json（基准本身）。
  * 必须由调用方从请求里解析后传进来 —— 转换器本身拿不到 req，
- * 若在这里自己猜，访客就会拿到管理员的分组策略。
+ * 若在这里自己猜，访客就会拿到别人的分组策略。
  */
 function resolveUserConfig(options = {}) {
 	const userConfig = readConfig(options.guestId);
@@ -387,5 +388,4 @@ function convertToSurge(proxies, options = {}) {
 module.exports = {
 	convertToClash,
 	convertToSurge,
-	AllProxiesFilteredError,
 };
