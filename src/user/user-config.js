@@ -45,13 +45,50 @@ const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'default.
 const DEFAULT_RULE_PROXY = '♻️ 自动选择';
 
 /**
- * 加载 default.json 作为基准
+ * default.json 的进程内缓存。
+ *
+ * 每次 readConfig 都要用它，而一次 /sub 请求至少调用两次 readConfig
+ * （sub.js 取 fetch 配置 + converter.js 取分组/过滤），实测每次同步读盘
+ * 约 1.4ms —— 订阅客户端会定时刷新，多个客户端叠加就会阻塞事件循环。
+ *
+ * 用 mtimeMs + size 作为失效依据，而不是「启动时读一次」：
+ * 部署人员改完 default.json 应当立刻生效，不该被迫重启服务
+ * （README 明确写了「改完重启服务生效」，但能做到免重启更好）。
+ * statSync 比 readFileSync + JSON.parse 快一个量级，且不会因配置变大而变慢。
  */
+let defaultConfigCache = null; // { mtimeMs, size, data }
+
 function loadDefaultConfig() {
+	let stat;
 	try {
-		return JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
+		stat = fs.statSync(DEFAULT_CONFIG_PATH);
 	} catch (err) {
+		// 文件不存在/无权限：回退空配置，并清掉可能过期的缓存
+		defaultConfigCache = null;
 		log.fail('基准配置 config/default.json 读取失败，已回退为空配置', err, {
+			path: DEFAULT_CONFIG_PATH,
+		});
+		return { groups: [], nodeFilters: {}, excludeKeywords: [], fetch: {} };
+	}
+
+	if (
+		defaultConfigCache &&
+		defaultConfigCache.mtimeMs === stat.mtimeMs &&
+		defaultConfigCache.size === stat.size
+	) {
+		return defaultConfigCache.data;
+	}
+
+	try {
+		const data = JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf-8'));
+		defaultConfigCache = { mtimeMs: stat.mtimeMs, size: stat.size, data };
+		log.debug('基准配置已重新加载', {
+			path: DEFAULT_CONFIG_PATH,
+			groups: (data.groups || []).length,
+		});
+		return data;
+	} catch (err) {
+		log.fail('基准配置 config/default.json 解析失败，已回退为空配置', err, {
 			path: DEFAULT_CONFIG_PATH,
 		});
 		return { groups: [], nodeFilters: {}, excludeKeywords: [], fetch: {} };

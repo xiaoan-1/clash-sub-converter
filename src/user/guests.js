@@ -180,7 +180,7 @@ function createGuestConfig(guestId) {
 	}
 
 	// 空的差异 = 完全继承基准。不做 default.json 拷贝，理由见文件头注释。
-	fs.writeFileSync(file, '{}\n', 'utf-8');
+	writeFileAtomic(file, '{}\n');
 	known.add(id);
 	log.info('新建访客配置（继承基准）', { guest: id, path: file, total: total + 1 });
 	return true;
@@ -208,12 +208,40 @@ function readGuestConfig(guestId) {
 	}
 }
 
+/**
+ * 原子写入：先写临时文件，再 rename 覆盖目标。
+ *
+ * 直接 writeFileSync 到目标文件有两个风险：
+ *   1. 进程在写入中途被 kill（PM2 重启 / Ctrl-C）会留下半截 JSON，
+ *      读取端虽能回退为「继承基准」，但用户的配置就静默丢了；
+ *   2. 同时读该文件的请求可能读到写了一半的内容。
+ * rename 在同一文件系统内是原子操作，读到的一定是完整的旧版或新版。
+ *
+ * 临时文件名带 pid 与随机后缀：多进程（如 PM2 cluster）同时写同一访客时
+ * 不会互相覆盖临时文件。
+ */
+function writeFileAtomic(file, content) {
+	const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+	try {
+		fs.writeFileSync(tmp, content, 'utf-8');
+		fs.renameSync(tmp, file);
+	} catch (err) {
+		// 失败时清掉临时文件，避免在 guests/ 里堆积
+		try {
+			fs.rmSync(tmp, { force: true });
+		} catch {
+			/* 忽略 */
+		}
+		throw err;
+	}
+}
+
 /** 写入访客配置（文件不存在时创建），返回文件路径 */
 function writeGuestConfig(guestId, data) {
 	const id = normalizeGuestId(guestId);
 	createGuestConfig(id);
 	const file = guestFile(id);
-	fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8');
+	writeFileAtomic(file, JSON.stringify(data, null, 2));
 	known.add(id);
 	return file;
 }

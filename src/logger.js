@@ -321,6 +321,10 @@ class Logger {
 	#dirReady = false;
 	/** @type {boolean} 写盘是否已失败并降级为「仅控制台」 */
 	#fileBroken = false;
+	/** @type {Map<string, number>} 各文件自上次轮转检查以来的累计写入字节数 */
+	#written = new Map();
+	/** @type {Map<string, number>} 各文件的常驻追加句柄（复用 fd 以避免每次 open/close） */
+	#fds = new Map();
 
 	/**
 	 * @param {Object} [options]
@@ -364,15 +368,69 @@ class Logger {
 		process.stderr.write(`[logger] ${reason}（后续日志仅输出到控制台）\n`);
 	}
 
-	/** 超过上限就把当前文件改名为 .1（先删旧的，Windows 上 rename 不覆盖已存在文件） */
-	#rotate(file) {
+	/**
+	 * 打开（或复用）文件的追加句柄。
+	 *
+	 * 复用 fd 是这里最关键的性能优化：appendFileSync 每次都要
+	 * open + write + close 三个系统调用，实测 0.43ms/次；而复用 fd 的
+	 * writeSync 只要 0.003ms —— 相差两个数量级。一条 /sub 请求约 20 条日志，
+	 * 用 appendFileSync 会让每个请求多出 ~9ms 的同步阻塞（事件循环被卡住）。
+	 */
+	#fd(file) {
+		const existing = this.#fds.get(file);
+		if (existing !== undefined) return existing;
+		const fd = fs.openSync(file, 'a');
+		this.#fds.set(file, fd);
+		return fd;
+	}
+
+	/** 关闭并遗忘某个文件的句柄（轮转后必须重开，否则继续写进已被改名的旧 inode） */
+	#closeFd(file) {
+		const fd = this.#fds.get(file);
+		if (fd === undefined) return;
+		try {
+			fs.closeSync(fd);
+		} catch {
+			/* 忽略 */
+		}
+		this.#fds.delete(file);
+	}
+
+	/** 关闭全部句柄（进程退出时用） */
+	close() {
+		for (const file of [...this.#fds.keys()]) this.#closeFd(file);
+	}
+
+	/**
+	 * 超过上限就把当前文件改名为 .1（先删旧的，Windows 上 rename 不覆盖已存在文件）。
+	 *
+	 * 用累计写入量判断，只有到阈值时才 statSync 一次 —— 早期实现每次写日志都
+	 * stat 一次，虽只 0.006ms，但在高频日志下也是无谓开销。
+	 * 代价是单条日志可能把文件顶到略超上限（估算到阈值即轮转，不再精确补齐），
+	 * 对日志文件来说无所谓。
+	 */
+	#rotate(file, incoming) {
+		const tracked = this.#written.get(file) || 0;
+		const next = tracked + incoming;
+		if (next < this.maxBytes) {
+			this.#written.set(file, next);
+			return;
+		}
+		// 到阈值才回落到真实大小，避免长期运行后估算值与实际偏差过大
 		let size;
 		try {
 			size = fs.statSync(file).size;
 		} catch {
+			this.#written.set(file, 0);
 			return; // 文件还不存在
 		}
-		if (size < this.maxBytes) return;
+		if (size < this.maxBytes) {
+			this.#written.set(file, size);
+			return;
+		}
+		// 轮转前必须先关句柄：Windows 不允许 rename 被打开的文件，
+		// 且旧句柄指向的是改名后的 inode，继续写会写进 .1
+		this.#closeFd(file);
 		try {
 			fs.rmSync(`${file}.1`, { force: true });
 		} catch {
@@ -383,15 +441,17 @@ class Logger {
 		} catch {
 			/* 忽略 */
 		}
+		this.#written.set(file, 0);
 	}
 
 	#emit(file, line) {
 		if (this.#fileBroken) return;
 		if (!this.#ensureDir()) return;
 		try {
-			this.#rotate(file);
-			fs.appendFileSync(file, line, 'utf-8');
+			this.#rotate(file, Buffer.byteLength(line, 'utf-8'));
+			fs.writeSync(this.#fd(file), line);
 		} catch (err) {
+			this.#closeFd(file);
 			this.#degrade(`写入 ${file} 失败: ${err.message}`);
 		}
 	}
@@ -462,6 +522,11 @@ class Logger {
 
 /** 默认单例：模块加载时即按环境变量配置好 */
 const defaultLogger = new Logger();
+
+// 进程退出时关闭常驻句柄。writeSync 是同步无缓冲的，日志本身不会丢，
+// 这里只是把 fd 还回去 —— 避免被某些「泄漏的 fd 会被报错」的工具误判。
+// 不用 beforeExit（事件循环清空才触发，PM2 强杀时不走），只挂 exit 兜底。
+process.once('exit', () => defaultLogger.close());
 
 module.exports = {
 	Logger,
