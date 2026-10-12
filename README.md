@@ -188,7 +188,7 @@ npm test
 
 ## 分流规则
 
-18 个规则文件（17 个可配置服务分组 + 系统本地路由 `common.json`），共 1346 条规则：
+18 个规则文件（17 个可配置服务分组 + 系统本地路由 `common.json`），共 1317 条规则：
 
 | 规则组 | 包含内容 |
 |--------|----------|
@@ -208,7 +208,7 @@ npm test
 | ⭕️💰 miHoYo | mihoyo.com、hoyoverse.com、yuanshen.com、starrails.com、juequling.com、mihayo.akamaized.net |
 | 🎨 Pixiv | pixiv.net、pximg.net、fanbox.cc、booth.pm、pixiv.cat |
 | 🎮 Steam 商店/社区 | steampowered.com、steamcommunity.com、steamstatic.com、steam-chat.com、steamdeck.com、steamstat.us（默认 ♻️ 自动选择） |
-| 🎮 Steam 下载/联机 | steamcontent.com、steamgames.com、steamcdn*、steampipe*.akamaized.net、`cm.` / `api.steampowered.com`、steamserver.net、国内 CDN（默认 DIRECT） |
+| 🎮 Steam 下载/联机 | steamcontent.com、steamgames.com、steamcdn*、steampipe*.akamaized.net、api.steampowered.com、steamserver.net、国内 CDN（默认 DIRECT） |
 | 🏠 本地路由 | 局域网、私有 IP、路由器、DDNS、GEOIP 国内（始终生效、不可配置） |
 
 ### 编写规则的原则
