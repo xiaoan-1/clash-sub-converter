@@ -9,13 +9,12 @@
     "DOMAIN-SUFFIX,steamstatic.com",
     "DOMAIN-SUFFIX,steamusercontent.com",
     "DOMAIN-SUFFIX,steam-chat.com",
-    "DOMAIN-SUFFIX,steamcdn.com",
     "DOMAIN-SUFFIX,valvesoftware.com",
     "DOMAIN-SUFFIX,valve.software",
-    "DOMAIN,store.steampowered.com",
-    "DOMAIN,api.steampowered.com",
-    "DOMAIN,help.steampowered.com",
-    "DOMAIN,checkout.steampowered.com",
-    "DOMAIN,partner.steamgames.com"
+    "DOMAIN,partner.steamgames.com",
+    "DOMAIN-SUFFIX,playartifact.com",
+    "DOMAIN-SUFFIX,steam-api.com",
+    "DOMAIN-SUFFIX,steamdeck.com",
+    "DOMAIN-SUFFIX,steamstat.us"
   ]
 }

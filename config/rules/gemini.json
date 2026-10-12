@@ -7,8 +7,17 @@
     "DOMAIN-SUFFIX,ai.google",
     "DOMAIN-SUFFIX,bard.google.com",
     "DOMAIN-SUFFIX,gemini.google.com",
-    "DOMAIN-SUFFIX,googleapis.com",
     "DOMAIN-SUFFIX,deepmind.com",
-    "DOMAIN-SUFFIX,deepmind.google"
+    "DOMAIN-SUFFIX,deepmind.google",
+    "DOMAIN,ai.google.dev",
+    "DOMAIN,alkalimakersuite-pa.clients6.google.com",
+    "DOMAIN,makersuite.google.com",
+    "DOMAIN-KEYWORD,colab",
+    "DOMAIN-KEYWORD,developerprofiles",
+    "DOMAIN-KEYWORD,generativelanguage",
+    "DOMAIN-SUFFIX,apis.google.com",
+    "DOMAIN-SUFFIX,generativeai.google",
+    "DOMAIN-SUFFIX,generativelanguage.googleapis.com",
+    "DOMAIN-SUFFIX,proactivebackend-pa.googleapis.com"
   ]
 }

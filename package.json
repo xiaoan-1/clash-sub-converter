@@ -13,7 +13,8 @@
     "delete": "pm2 delete clash-sub-converter",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node test/verify-with-mihomo.js"
+    "test": "node test/verify-with-mihomo.js",
+    "check:rules": "node test/check-rule-domains.js"
   },
   "devDependencies": {
     "prettier": "^3.9.9"

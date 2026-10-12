@@ -188,28 +188,37 @@ npm test
 
 ## 分流规则
 
-18 个规则文件（17 个可配置服务分组 + 系统本地路由 `common.json`），可在配置页面启用 / 停用：
+18 个规则文件（17 个可配置服务分组 + 系统本地路由 `common.json`），共 1346 条规则：
 
 | 规则组 | 包含内容 |
 |--------|----------|
-| 🍎 Apple 服务 | apple.com、icloud.com、iTunes、App Store IP 段（默认 DIRECT） |
-| Ⓜ️ 微软服务 | office.com、azure.com、xbox.com、Windows 更新（默认 DIRECT） |
-| 🤖 OpenAI | openai.com、chatgpt.com、oaistatic.com |
-| 🤖 Claude | anthropic.com、claude.ai |
-| 🤖 Gemini | gemini.google.com、generativelanguage.googleapis.com |
-| 💬 Telegram | telegram.org、t.me、Telegram CDN / IP 段 |
-| 📺 YouTube | youtube.com、googlevideo.com、ytimg.com |
-| 🎬 Netflix | netflix.com、nflximg.net、Netflix IP 段 |
-| 🎥 Disney+ | disneyplus.com、disney.com、bamgrid.com |
-| 📺 Dazn | dazn.com、daznservices.com |
-| 📺 哔哩哔哩 | bilibili.com、hdslb.com、bilivideo.com |
-| 🎮 巴哈姆特 | bahamut.com.tw、gamer.com.tw |
-| ⌨️ GitHub | github.com、githubusercontent.com、githubassets.com |
-| ⭕️💰 miHoYo | mihoyo.com、hoyoverse.com、yuanshen.com |
-| 🎨 Pixiv | pixiv.net、pximg.net、fanbox.cc、booth.pm |
-| 🎮 Steam 商店/社区 | steampowered.com、steamcommunity.com、steamstatic.com（默认 ♻️ 自动选择） |
-| 🎮 Steam 下载/联机 | steamcontent.com、steamgames.com、qtlglb.com（默认 DIRECT） |
+| 🍎 Apple 服务 | apple.com、icloud.com、itunes.com、mzstatic.com、apple-dns.net、TestFlight、App Store / Apple 自有 IP 段（默认 DIRECT） |
+| Ⓜ️ 微软服务 | microsoft.com、office365.com、live.com、outlook、onedrive、azure、bing、xbox、visualstudio、vscode.dev、nuget.org、Power BI / Power Apps、Minecraft、Bethesda（默认 DIRECT） |
+| 🤖 OpenAI | openai.com、chatgpt.com、oaistatic.com、livekit.cloud、statsig、arkoselabs |
+| 🤖 Claude | anthropic.com、claude.ai、servd-anthropic-website.b-cdn.net |
+| 🤖 Gemini | gemini.google.com、generativelanguage.googleapis.com、makersuite、deepmind.google、generativeai.google |
+| 💬 Telegram | telegram.org、t.me、telegra.ph、telegramdownload.com、Telegram CDN / IPv4 + IPv6 网段 |
+| 📺 YouTube | youtube.com 及各国域名、googlevideo.com、ytimg.com、ggpht.com、video.google.com、gvt1 / gvt2.com、YouTube IP 段 |
+| 🎬 Netflix | netflix.com（含各国）、nflximg.net、nflxvideo.net、fast.com、netflixdnstest*.com、Netflix IP 段 |
+| 🎥 Disney+ | disneyplus.com、disney.com、bamgrid.com、hotstar.com、espn.com、abc.com、marvel.com、nationalgeographic.com |
+| 📺 Dazn | dazn.com、daznservices.com、indaznlab.com、DAZN 专用 CDN |
+| 📺 哔哩哔哩 | bilibili.com、bilibili.tv、hdslb.com、bilivideo.com、biligame.com、bili22 / 23 / 33.cn、maoercdn.com、mcbbs.net |
+| 🎮 巴哈姆特 | bahamut.com.tw、gamer.com.tw、bahamut.akamaized.net |
+| ⌨️ GitHub | github.com、githubusercontent.com、githubassets.com、githubcopilot.com、github.io、npmjs.org、rawgit.com |
+| ⭕️💰 miHoYo | mihoyo.com、hoyoverse.com、yuanshen.com、starrails.com、juequling.com、mihayo.akamaized.net |
+| 🎨 Pixiv | pixiv.net、pximg.net、fanbox.cc、booth.pm、pixiv.cat |
+| 🎮 Steam 商店/社区 | steampowered.com、steamcommunity.com、steamstatic.com、steam-chat.com、steamdeck.com、steamstat.us（默认 ♻️ 自动选择） |
+| 🎮 Steam 下载/联机 | steamcontent.com、steamgames.com、steamcdn*、steampipe*.akamaized.net、`cm.` / `api.steampowered.com`、steamserver.net、国内 CDN（默认 DIRECT） |
 | 🏠 本地路由 | 局域网、私有 IP、路由器、DDNS、GEOIP 国内（始终生效、不可配置） |
+
+### 编写规则的原则
+
+- **只收录服务自有域名**。跨服务共用的第三方 SaaS（`sentry.io`、`stripe.com`、`auth0.com`、`optimizely.com`、`akadns.net` …）一律不收录 —— 收进某个服务分组会让别家的流量跟着走错出口。
+- **不重复**。同一条规则出现在两个分组时，只有**文件名靠前**（按字母序）的分组生效，后面的形同虚设。例：`steam-download` 排在 `steam-store` 之前，所以 `cm.steampowered.com`、`api.steampowered.com` 放在 `steam-download` 里才真正走直连。
+- **不留冗余**。同组内若已有 `DOMAIN-SUFFIX,pixiv.net`，再写 `DOMAIN,app-api.pixiv.net` 是多余的 —— `DOMAIN-SUFFIX` 同时匹配自身与所有子域。
+- **只收还有流量的域名**。已停运的产品（IE、Windows Phone、Silverlight、Cortana、Wunderlist、HockeyApp）、已结束的营销活动域名、Bing 拼写防抢注域一律不收；定期用 DoH（Cloudflare / Google 双源）复核，`NXDOMAIN` 的直接清掉。判断依据是**域名是否还存在、产品是否还在服务**，而不是「域名能不能解析」—— `microsoftonline.com`、`trafficmanager.net`、`windowsupdate.com` 这类只在子域上提供服务的命名空间，apex 本来就没有 A 记录，必须保留。
+- **组内排序**为 `DOMAIN` → `DOMAIN-SUFFIX` → `DOMAIN-KEYWORD` → `IP-CIDR`，精确规则在前。
+- **`common.json` 始终生效且不可关闭**，适合放必须直连的本地 / 私有地址；与其他分组重复的规则写在 `common.json` 里才有效。
 
 ## 多用户部署（按访问者 IP 隔离）
 

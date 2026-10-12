@@ -6,8 +6,6 @@
   "rules": [
     "DOMAIN-SUFFIX,anthropic.com",
     "DOMAIN-SUFFIX,claude.ai",
-    "DOMAIN,console.anthropic.com",
-    "DOMAIN,sentry.anthropic.com",
-    "DOMAIN,statsig.anthropic.com"
+    "DOMAIN,servd-anthropic-website.b-cdn.net"
   ]
 }
