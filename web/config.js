@@ -90,11 +90,16 @@ function loadUserConfig() {
 				}
 			}
 			if (!Array.isArray(config.excludeKeywords)) config.excludeKeywords = [];
+			if (!Array.isArray(config.subscriptions)) config.subscriptions = [];
+			if (!config.limits || typeof config.limits.subscriptions !== 'number') {
+				config.limits = { subscriptions: 10 };
+			}
 			if (!config.fetch) config.fetch = { userAgent: 'auto', customUserAgent: '' };
 			if (!config.fetch.userAgent) config.fetch.userAgent = 'auto';
 			updateSegUI('filterSeg', config.nodeFilter);
 			renderKeywords();
 			renderPresets();
+			renderSubscriptions();
 			renderUa();
 			renderGroups();
 			setSaveState('ok');
@@ -104,6 +109,8 @@ function loadUserConfig() {
 				groups: [],
 				nodeFilter: 'all',
 				excludeKeywords: [],
+				subscriptions: [],
+				limits: { subscriptions: 10 },
 				fetch: { userAgent: 'auto', customUserAgent: '' },
 			};
 			renderUa();
@@ -121,6 +128,107 @@ function renderScope(scope) {
 	var el = document.getElementById('scopeLabel');
 	if (!el || !scope) return;
 	el.textContent = '👤 访客 · guests/' + scope.guest + '.json · ' + scope.ip;
+}
+
+// ========== 我的订阅（按 IP 保存，客户端直接填 /sub） ==========
+
+/** 拉取不到服务端上限时的兜底（与服务端 MAX_URLS 默认值一致） */
+var MAX_SAVED_SUBS_FALLBACK = 10;
+
+/**
+ * 读取「我的订阅」输入框里的地址。
+ *
+ * 与服务端 normalizeSubscriptions 保持同一套规则（去空白 / 去重 /
+ * 只留 http(s) / 限制条数），这样保存后看到的数量与实际生效的一致。
+ */
+function readSavedSubUrls() {
+	var ta = document.getElementById('savedSubUrls');
+	if (!ta) return [];
+	var limit = (config.limits && config.limits.subscriptions) || MAX_SAVED_SUBS_FALLBACK;
+	var out = [];
+	ta.value.split('\n').forEach(function (line) {
+		var url = line.trim();
+		if (!url) return;
+		if (!/^https?:\/\//i.test(url)) return;
+		if (out.indexOf(url) !== -1) return;
+		if (out.length >= limit) return;
+		out.push(url);
+	});
+	return out;
+}
+
+/** 用配置里的订阅地址填充输入框，并更新地址与状态 */
+function renderSubscriptions() {
+	var ta = document.getElementById('savedSubUrls');
+	if (ta) ta.value = (config.subscriptions || []).join('\n');
+	renderSubEndpoint();
+	var n = (config.subscriptions || []).length;
+	setSubSaveState('ok', n ? '已保存 ' + n + ' 个订阅地址' : '尚未保存订阅地址');
+}
+
+/**
+ * 客户端应填的地址：由当前页面地址推出服务根路径。
+ *   http://host/cfg        → http://host/sub
+ *   http://host/clash/cfg  → http://host/clash/sub
+ * 不能用 './sub' 直接解析：页面被访问成 /cfg/（带尾斜杠）时会得到 /cfg/sub。
+ */
+function subEndpointUrl() {
+	var base = location.href.split('?')[0].split('#')[0].replace(/\/+$/, '');
+	return base.replace(/\/cfg$/, '') + '/sub';
+}
+
+function renderSubEndpoint() {
+	var el = document.getElementById('subEndpoint');
+	if (el) el.textContent = subEndpointUrl();
+}
+
+function setSubSaveState(state, msg) {
+	var el = document.getElementById('subSaveStatus');
+	if (!el) return;
+	var cls = 'autosave-state';
+	if (state === 'pending') cls += ' autosave-pending';
+	else if (state === 'err') cls += ' autosave-err';
+	else cls += ' autosave-ok';
+	el.className = cls;
+	el.textContent = msg || '';
+}
+
+/** 输入了但还没点保存：明确提示，避免以为已经生效 */
+function onSubUrlsInput() {
+	setSubSaveState('pending', '有未保存的修改，点「保存订阅地址」后生效');
+}
+
+/** 显式保存（不等防抖）：输入框内容写进 config 后立即提交 */
+function saveSubscriptions() {
+	config.subscriptions = readSavedSubUrls();
+	var btn = document.getElementById('subSaveBtn');
+	if (btn) btn.disabled = true;
+	setSubSaveState('pending', '保存中…');
+	saveNow(function (err) {
+		if (btn) btn.disabled = false;
+		if (err) {
+			setSubSaveState('err', '保存失败：' + err.message);
+			return;
+		}
+		var n = config.subscriptions.length;
+		setSubSaveState('ok', n ? '已保存 ' + n + ' 个订阅地址' : '已清空订阅地址');
+	});
+}
+
+function copySubEndpoint() {
+	var text = subEndpointUrl();
+	if (navigator.clipboard && navigator.clipboard.writeText) {
+		navigator.clipboard.writeText(text).then(
+			function () {
+				setSubSaveState('ok', '地址已复制：' + text);
+			},
+			function () {
+				setSubSaveState('err', '复制失败，请手动选中复制');
+			},
+		);
+	} else {
+		setSubSaveState('err', '当前浏览器不支持自动复制，请手动选中复制');
+	}
 }
 
 // ========== 订阅拉取 UA ==========
@@ -849,8 +957,9 @@ function toggleGroup(index, enabled) {
 
 function buildSavePayload() {
 	var payload = JSON.parse(JSON.stringify(config));
-	// scope 是只读的身份信息，不能回传给服务端
+	// scope / limits 是只读的身份信息与服务端上限，不能回传给服务端
 	delete payload.scope;
+	delete payload.limits;
 	if (config.nodeFilter === 'hideDomestic') {
 		payload.nodeFilters = { hideDomestic: true, hideInternational: false };
 	} else if (config.nodeFilter === 'hideInternational') {
@@ -860,6 +969,7 @@ function buildSavePayload() {
 	}
 	delete payload.nodeFilter;
 	if (!Array.isArray(payload.excludeKeywords)) payload.excludeKeywords = [];
+	if (!Array.isArray(payload.subscriptions)) payload.subscriptions = [];
 	return payload;
 }
 
@@ -878,6 +988,8 @@ var SAVE_DEBOUNCE_MS = 300;
 var saveTimer = null;
 var saveInFlight = false;
 var saveDirty = false;
+/** 显式保存（如「保存订阅地址」）的完成回调：成功传 null，失败传 Error */
+var saveCallbacks = [];
 
 /** 标记有改动并安排写回。所有修改配置的地方都必须调用它。 */
 function scheduleSave() {
@@ -885,6 +997,35 @@ function scheduleSave() {
 	setSaveState('pending');
 	clearTimeout(saveTimer);
 	saveTimer = setTimeout(autosave, SAVE_DEBOUNCE_MS);
+}
+
+/**
+ * 立即写回（跳过防抖），完成后回调。
+ *
+ * 「保存订阅地址」是显式操作：用户点完必须马上落盘并给出结果，
+ * 不能等 300ms 防抖后才知道成功与否。
+ *
+ * @param {Function} [done] (err: Error|null) => void
+ */
+function saveNow(done) {
+	if (typeof done === 'function') saveCallbacks.push(done);
+	clearTimeout(saveTimer);
+	saveDirty = true;
+	setSaveState('pending');
+	autosave();
+}
+
+/** 通知所有等待者。队列在调用前清空，避免回调里再次触发保存时重复执行。 */
+function flushSaveCallbacks(err) {
+	var list = saveCallbacks;
+	saveCallbacks = [];
+	list.forEach(function (cb) {
+		try {
+			cb(err);
+		} catch (e) {
+			console.error(e);
+		}
+	});
 }
 
 /**
@@ -912,13 +1053,18 @@ function autosave() {
 		.then(function (r) {
 			saveInFlight = false;
 			if (!r.ok) throw new Error(r.data.error);
-			if (saveDirty)
-				autosave(); // 飞行期间又改了 → 再写一次
-			else setSaveState('ok');
+			if (saveDirty) {
+				// 飞行期间又改了 → 再写一次（等待者留在队列里，等最终那次完成）
+				autosave();
+				return;
+			}
+			setSaveState('ok');
+			flushSaveCallbacks(null);
 		})
 		.catch(function (err) {
 			saveInFlight = false;
 			setSaveState('err', err.message);
+			flushSaveCallbacks(err);
 		});
 }
 

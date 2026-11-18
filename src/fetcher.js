@@ -260,6 +260,29 @@ async function requestSubscription(url, options = {}) {
 	let response;
 	let currentUrl = guard.url;
 	let redirects = 0;
+	/**
+	 * 元信息头按「首个非空」跨跳收集。
+	 *
+	 * 部分机场 / 对象存储在 **302 响应**上下发订阅信息，最终 200 里没有
+	 * （跳转到临时签名 URL 后，S3/CDN 不会重复下发机场的业务头）。
+	 * 只取最终响应会让客户端「有节点、没有流量和到期时间」；
+	 * 自己跟随重定向时这些头正好在我们手里，顺手收集即可。
+	 */
+	const subHeaders = { userinfo: '', homeUrl: '', interval: '', fileName: '' };
+
+	/** 从一份响应头里补齐还缺的元信息（已有值不覆盖，先到先得） */
+	const collectMeta = headers => {
+		if (!headers) return;
+		if (!subHeaders.userinfo)
+			subHeaders.userinfo = readSubHeader(headers, 'subscription-userinfo');
+		if (!subHeaders.homeUrl)
+			subHeaders.homeUrl = readSubHeader(headers, 'profile-web-page-url');
+		if (!subHeaders.interval) {
+			subHeaders.interval = readSubHeader(headers, 'profile-update-interval');
+		}
+		if (!subHeaders.fileName)
+			subHeaders.fileName = readSubHeader(headers, 'content-disposition');
+	};
 
 	for (;;) {
 		const budget = Math.min(SUBSCRIBE_TIMEOUT_MS, remainingMs());
@@ -316,7 +339,10 @@ async function requestSubscription(url, options = {}) {
 
 		// 重定向：每一跳都重新做协议 / 地址 / DNS 校验，否则第一跳合法、
 		// 第二跳指向 169.254.169.254 就能绕过整套防护。
+		// 元信息头无论落在哪一跳都要收下来（见 subHeaders 的说明）。
 		if (!REDIRECT_STATUS.has(response.status)) break;
+
+		collectMeta(response.headers);
 
 		const location = response.headers.get('location');
 		try {
@@ -430,10 +456,13 @@ async function requestSubscription(url, options = {}) {
 		throw err;
 	}
 
-	const userInfo = parseUserInfo(readSubHeader(headers, 'subscription-userinfo'));
-	const homeUrl = sanitizeHomeUrl(readSubHeader(headers, 'profile-web-page-url'));
-	const updateInterval = parseUpdateInterval(readSubHeader(headers, 'profile-update-interval'));
-	const fileName = parseFileName(readSubHeader(headers, 'content-disposition'));
+	// 最终响应也要收（先到先得，跳转里的不覆盖最终响应的真实值）
+	collectMeta(headers);
+
+	const userInfo = parseUserInfo(subHeaders.userinfo);
+	const homeUrl = sanitizeHomeUrl(subHeaders.homeUrl);
+	const updateInterval = parseUpdateInterval(subHeaders.interval);
+	const fileName = parseFileName(subHeaders.fileName);
 
 	log.info('拉取订阅成功', {
 		url: safe,
@@ -447,6 +476,7 @@ async function requestSubscription(url, options = {}) {
 		// age>0 表示这次命中了 CDN 缓存，拿到的是旧订阅，可解释「订阅没更新」
 		'cdn-cache': headers.get('cf-cache-status') || headers.get('x-cache') || undefined,
 		age: headers.get('age') || undefined,
+		redirects: redirects || undefined,
 	});
 
 	// 机场元信息逐项记录：客户端「订阅详情」空白时，靠这几行判断是机场没下发还是本地没转发
@@ -456,6 +486,18 @@ async function requestSubscription(url, options = {}) {
 		homeUrl: homeUrl || '(无)',
 		interval: updateInterval || '(无)',
 		fileName: fileName || '(无)',
+		// 原样保留 / 解析失败时才有值：机场写法不规范时（如 expire 给了非法值），
+		// 光看「(无)」无法区分「没下发」与「下发了但解析不出来」
+		raw: {
+			userinfo: subHeaders.userinfo || undefined,
+			interval: subHeaders.interval || undefined,
+		},
+		// 没拿到流量信息时，列出所有「可能是元信息」的响应头名（只列名字，不列值）：
+		// 有些机场把信息放进了非标准头（x-userinfo / subscription-info …），
+		// 有了这份清单就能一眼看出该给哪个头补兼容，而不是反复猜。
+		'hint-header-names': userInfo
+			? undefined
+			: [...headers.keys()].filter(k => /info|sub|traffic|user|expire|profile/i.test(k)),
 	});
 
 	return { text, userInfo, homeUrl, updateInterval, fileName };

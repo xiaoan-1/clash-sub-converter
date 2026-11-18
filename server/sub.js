@@ -53,16 +53,42 @@ router.get('/', async (req, res) => {
 		const scope = guests.scopeOf(req);
 		const client = scope.ip;
 
-		if (!url) {
-			log.warn('缺少 url 参数', { client, 'user-agent': req.get('user-agent') || '-' });
-			return res.status(400).json({ error: 'Missing url parameter' });
-		}
+		// 本访客生效配置：UA / 过滤 / 分组 / 已保存的订阅地址都来自这一份
+		const guestCfg = readConfig(scope.guest);
 
-		// 多个 URL 用 | 分隔
-		const urls = url
-			.split('|')
-			.map(u => u.trim())
-			.filter(Boolean);
+		// 订阅地址来源：
+		//   ?url= 显式指定  → 优先（保留原有 subconverter 兼容行为）
+		//   未带 url         → 用本访客在配置页保存的地址，客户端直接填 /sub 即可
+		let urls;
+		let urlSource;
+		if (url) {
+			urlSource = 'query';
+			urls = url
+				.split('|')
+				.map(u => u.trim())
+				.filter(Boolean);
+		} else {
+			urlSource = 'guest';
+			urls = Array.isArray(guestCfg.subscriptions) ? guestCfg.subscriptions.slice() : [];
+			if (!urls.length) {
+				// 这里最常见的困惑是「我明明保存了，但客户端拉取说没有地址」——
+				// 原因几乎都是保存与拉取来自不同出口 IP（手机 / 路由器与电脑不同 IP）。
+				const subBase = (req.baseUrl || '/sub').replace(/\/sub$/, '');
+				const pageUrl = `${req.protocol}://${req.get('host') || 'localhost'}${subBase}/cfg`;
+				log.warn('未提供 url，且本访客未保存订阅地址', {
+					client,
+					guest: scope.guest,
+					pageUrl,
+				});
+				return res.status(400).json({
+					error: '未提供订阅地址，且当前 IP 尚未保存订阅地址',
+					hint:
+						`请先在 ${pageUrl} 的「我的订阅」里保存订阅链接，` +
+						'之后代理软件直接填本地址即可。注意：保存与拉取需来自同一出口 IP。',
+					configUrl: pageUrl,
+				});
+			}
+		}
 
 		// 份数上限：串行拉取下每份最多 15s，不设上限时单个请求能占用几分钟
 		if (urls.length > MAX_URLS) {
@@ -76,7 +102,7 @@ router.get('/', async (req, res) => {
 		// 拉取订阅时使用的 UA：?ua= 显式指定 > 配置 > 透传调用方（浏览器则回退预设）
 		// 这里读的是「本访客那份配置」：UA / 过滤 / 分组都随访客各自生效
 		const callerUA = req.get('user-agent') || '';
-		const { fetch: fetchCfg = {} } = readConfig(scope.guest);
+		const fetchCfg = guestCfg.fetch || {};
 		// 连同「这个 UA 是怎么定出来的」一起带下去：机场因 UA 不一致作废订阅时靠它定位
 		// ?ua= 来自查询串（外部可控），同样要过一遍清洗，避免控制字符进日志 / 发给机场
 		const queryUa = sanitizeUa(ua);
@@ -93,6 +119,8 @@ router.get('/', async (req, res) => {
 		log.info('请求进入', {
 			target,
 			urls: urls.length,
+			// query = 调用方自带地址；guest = 用的是本访客保存的地址
+			'url-source': urlSource,
 			client,
 			scope: scope.guest,
 			'caller-ua': callerUA || '(空)',

@@ -7,6 +7,7 @@
  *   - 地区识别边界（CN2 GIA 不能被当成国内）
  *   - 节点 URL 解析（IPv6 方括号 / userinfo 百分号编码）
  *   - 分组引用（无悬空引用、无循环引用）
+ *   - 订阅地址归一化（去空行 / 去重 / 只留 http(s) / 限制条数）
  *
  * 端到端的那部分（把配置交给真实 mihomo 加载）在 verify-with-mihomo.js 里，
  * 两者都由 `pnpm test` 执行。
@@ -14,11 +15,21 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
 
 const { validateSubscriptionUrl } = require('../src/utils/url-guard');
 const { ruleTargetOf } = require('../src/rule-manager');
 const { generateProxyGroups, isDomestic, getRegion } = require('../src/proxy-groups');
 const { parseNodeUrl } = require('../src/parser/utils');
+const { MAX_URLS } = require('../src/fetcher');
+const { normalizeSubscriptions, readConfig, saveConfig } = require('../src/user/user-config');
+const guests = require('../src/user/guests');
+const {
+	parseUserInfo,
+	formatUserInfo,
+	parseUpdateInterval,
+	buildContentDisposition,
+} = require('../src/utils/subscription-meta');
 
 // ===================== SSRF =====================
 
@@ -223,4 +234,101 @@ test('分组：🇨🇳 中国大陆的默认出口来自配置', () => {
 	const cn = groups.find(g => g.name === '🇨🇳 中国大陆');
 	assert.equal(cn.proxies[0], '上海 电信');
 	assert.ok(cn.proxies.includes('DIRECT'));
+});
+
+// ===================== 订阅地址 =====================
+
+test('订阅地址：去空行 / 去重 / 只留 http(s) / 限制条数', () => {
+	const out = normalizeSubscriptions([
+		'  https://a.example/sub  ',
+		'',
+		'   ',
+		'https://a.example/sub',
+		'ftp://b.example/x',
+		'file:///etc/passwd',
+		'HTTP://c.example/sub',
+		null,
+	]);
+	assert.deepEqual(out, ['https://a.example/sub', 'HTTP://c.example/sub']);
+
+	// 上限与 /sub 的 MAX_URLS 一致，否则会出现「存得下、拉不到」
+	const many = Array.from({ length: MAX_URLS + 5 }, (_, i) => `https://s${i}.example/x`);
+	assert.equal(normalizeSubscriptions(many).length, MAX_URLS);
+});
+
+test('订阅地址：保存到访客文件后能读回，且不与基准冲突', () => {
+	// 用一个临时访客 ID，避免碰到真实用户的 guests/<IP>.json
+	const guestId = 'unit-test-tmp';
+	const subs = ['https://a.example/sub', 'https://b.example/sub'];
+	try {
+		saveConfig({ groups: [], subscriptions: subs }, guestId);
+		assert.deepEqual(readConfig(guestId).subscriptions, subs);
+
+		// 清空 = 回退到基准（default.json 的 subscriptions，默认为空）
+		saveConfig({ groups: [], subscriptions: [] }, guestId);
+		assert.deepEqual(readConfig(guestId).subscriptions, []);
+	} finally {
+		const file = guests.guestFile(guestId);
+		try {
+			fs.rmSync(file, { force: true });
+		} catch {
+			/* 忽略 */
+		}
+	}
+});
+// ===================== 订阅元信息（流量 / 到期） =====================
+
+test('订阅元信息：标准 subscription-userinfo 原样解析', () => {
+	const info = parseUserInfo(
+		'upload=132568703; download=4360315146; total=322122547200; expire=1794066971',
+	);
+	assert.deepEqual(info, {
+		upload: 132568703,
+		download: 4360315146,
+		total: 322122547200,
+		expire: 1794066971,
+	});
+	assert.equal(
+		formatUserInfo(info),
+		'upload=132568703; download=4360315146; total=322122547200; expire=1794066971',
+	);
+});
+
+test('订阅元信息：expire 为毫秒时间戳时换算为秒（而不是丢掉）', () => {
+	// 部分机场发 13 位毫秒值；按「超过 2100 年算非法」直接丢弃会造成
+	// 「有流量、没有到期时间」这种最难排查的表现
+	const info = parseUserInfo('total=100; expire=1794066971000');
+	assert.ok(info);
+	assert.equal(info.expire, 1794066971);
+});
+
+test('订阅元信息：空字段跳过，不当成 0', () => {
+	const info = parseUserInfo('upload=; download=5; total=; expire=');
+	assert.deepEqual(info, { download: 5 });
+});
+
+test('订阅元信息：非标准/非法值不抛错', () => {
+	assert.equal(parseUserInfo(''), null);
+	assert.equal(parseUserInfo('garbage'), null);
+	assert.equal(parseUserInfo('total=abc'), null);
+	assert.equal(parseUserInfo('expire=99999999999999'), null); // 超出毫秒范围
+	assert.deepEqual(parseUserInfo('UPLOAD=1;TOTAL=2'), { upload: 1, total: 2 });
+});
+
+test('订阅元信息：profile-update-interval 夹在 1~720', () => {
+	assert.equal(parseUpdateInterval('24'), '24');
+	// 0.5 若 floor 成 0，客户端会当成「无效 / 不自动更新」
+	assert.equal(parseUpdateInterval('0.5'), '1');
+	assert.equal(parseUpdateInterval('9999'), '720');
+	assert.equal(parseUpdateInterval('0'), '');
+	assert.equal(parseUpdateInterval('abc'), '');
+});
+
+test('Content-Disposition：纯中文文件名用 UTF-8 兜底，ASCII 不回退成残渣', () => {
+	const v = buildContentDisposition('落云.yaml');
+	assert.ok(v.includes('filename="subscription.yaml"'), v);
+	assert.ok(v.includes("filename*=UTF-8''"), v);
+
+	const ascii = buildContentDisposition('airport.yaml');
+	assert.equal(ascii, 'attachment; filename="airport.yaml"');
 });

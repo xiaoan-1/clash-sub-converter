@@ -30,6 +30,7 @@ const fs = require('fs');
 const path = require('path');
 const { ruleManager } = require('../rule-manager');
 const { ruleGroupKeys } = require('../rule-groups');
+const { MAX_URLS } = require('../fetcher');
 const guests = require('./guests');
 const logger = require('../logger');
 
@@ -146,6 +147,30 @@ function effectiveGroups(def) {
 }
 
 /**
+ * 归一化订阅地址列表。
+ *
+ * 订阅地址由用户在配置页逐行填写，是外部可控输入，统一形态后再落盘：
+ *   - 去空白、丢弃空行（空串会被当成「没有地址」，与「多一行空行」语义不同）
+ *   - 去重（同一地址填两遍会让同一份订阅被拉两次）
+ *   - 只接受 http(s)：其余协议在拉取阶段必然被 SSRF 防护拒绝，存下来只会让人困惑
+ *   - 限制条数，与 /sub 的 MAX_URLS 同一上限 —— 否则会存得下、拉不到
+ *
+ * @param {Array} list
+ * @returns {string[]}
+ */
+function normalizeSubscriptions(list) {
+	const out = [];
+	for (const raw of Array.isArray(list) ? list : []) {
+		const url = String(raw == null ? '' : raw).trim();
+		if (!url || !/^https?:\/\//i.test(url)) continue;
+		if (out.includes(url)) continue;
+		out.push(url);
+		if (out.length >= MAX_URLS) break;
+	}
+	return out;
+}
+
+/**
  * 基准配置（default.json 本身，附带补全后的分组清单）。
  *
  * 这是唯一的基准来源 —— 没有「站点基准 / 管理员」中间层，
@@ -158,6 +183,7 @@ function baseline() {
 		nodeFilters: def.nodeFilters || {},
 		excludeKeywords: def.excludeKeywords || [],
 		fetch: def.fetch || {},
+		subscriptions: normalizeSubscriptions(def.subscriptions),
 		groups: effectiveGroups(def),
 	};
 }
@@ -186,6 +212,9 @@ function readConfig(guestId) {
 		nodeFilters: def.nodeFilters || {},
 		excludeKeywords: def.excludeKeywords || [],
 		fetch: def.fetch || {},
+		// 订阅地址：默认不写进 default.json（含 token，属个人措据），
+		// 由访客各自在配置页保存；部署人员确实需要时也可在 default.json 里写一份共享的。
+		subscriptions: normalizeSubscriptions(def.subscriptions),
 		groupOverrides: {},
 	};
 
@@ -197,6 +226,10 @@ function readConfig(guestId) {
 						? guest.excludeKeywords
 						: base.excludeKeywords,
 				fetch: { ...base.fetch, ...(guest.fetch || {}) },
+				subscriptions:
+					guest.subscriptions !== undefined
+						? normalizeSubscriptions(guest.subscriptions)
+						: base.subscriptions,
 				groupOverrides: mergeGroupOverrides(base.groupOverrides, guest.groupOverrides),
 			}
 		: base;
@@ -218,6 +251,7 @@ function readConfig(guestId) {
 		nodeFilters: effective.nodeFilters,
 		excludeKeywords: effective.excludeKeywords,
 		fetch: effective.fetch,
+		subscriptions: effective.subscriptions,
 		groups,
 	};
 
@@ -229,6 +263,7 @@ function readConfig(guestId) {
 		disabled: groups.filter(g => g.enabled === false).map(g => g.ruleId || g.builtin),
 		nodeFilters: result.nodeFilters,
 		excludeKeywords: result.excludeKeywords.length,
+		subscriptions: result.subscriptions.length,
 		fetch: JSON.stringify(effective.fetch),
 	});
 
@@ -307,6 +342,14 @@ function saveConfig(newConfig, guestId) {
 		? undefined
 		: newConfig.excludeKeywords || [];
 
+	// ---- 订阅地址 ----
+	// 与排除关键词同为数组型配置：先归一化再比，避免「只是多了空行」也被当成改动落盘。
+	// 归一化后与基准相同 → 不写入（回退到继承基准）。
+	const subscriptions = normalizeSubscriptions(newConfig.subscriptions);
+	const subscriptionsDiff = sameJson(subscriptions, base.subscriptions)
+		? undefined
+		: subscriptions;
+
 	// ---- 分组覆盖 ----
 	const groupOverrides = diffGroups(base.groups, newConfig.groups || []);
 
@@ -322,6 +365,7 @@ function saveConfig(newConfig, guestId) {
 	const out = {};
 	if (Object.keys(nodeFilters).length > 0) out.nodeFilters = nodeFilters;
 	if (excludeKeywords !== undefined) out.excludeKeywords = excludeKeywords;
+	if (subscriptionsDiff !== undefined) out.subscriptions = subscriptionsDiff;
 	if (Object.keys(groupOverrides).length > 0) out.groupOverrides = groupOverrides;
 	if (Object.keys(fetchOv).length > 0) out.fetch = fetchOv;
 
@@ -334,6 +378,7 @@ function saveConfig(newConfig, guestId) {
 		diffKeys: Object.keys(out),
 		nodeFilters: out.nodeFilters,
 		excludeKeywords: out.excludeKeywords ? out.excludeKeywords.length : '(继承)',
+		subscriptions: out.subscriptions ? out.subscriptions.length : '(继承)',
 		fetch: out.fetch ? JSON.stringify(out.fetch) : '(继承)',
 		groupOverrides: out.groupOverrides ? Object.keys(out.groupOverrides).length : 0,
 	});
@@ -347,4 +392,5 @@ module.exports = {
 	baseline,
 	readConfig,
 	saveConfig,
+	normalizeSubscriptions,
 };

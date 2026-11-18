@@ -48,7 +48,16 @@ function parseUserInfo(value) {
 		const num = Number(raw);
 		// 只接受十进制整数：排除 Infinity / 科学计数法 / 十六进制等异常写法
 		if (!/^\d+$/.test(raw) || !Number.isFinite(num)) continue;
-		const n = Math.floor(num);
+		let n = Math.floor(num);
+
+		// expire 有两种常见写法：秒（10 位）与毫秒（13 位）。
+		// 直接按「超过 2100 年就算非法」过滤会把毫秒写法整条丢掉，
+		// 结果是客户端「有流量、没到期时间」——最难排查的一种表现。
+		// 毫秒值上限对应到 2100 年约为 4.1e12，据此识别并换算回秒。
+		if (key === 'expire' && n > 4102444800 && n <= 4102444800000) {
+			n = Math.floor(n / 1000);
+		}
+
 		// 上界约束：expire 为 Unix 时间戳（2100 年前），其余为字节数（≤ 1 PiB）
 		const limit = key === 'expire' ? 4102444800 : 1024 ** 5;
 		if (n > limit) continue;
@@ -108,7 +117,9 @@ function sanitizeHomeUrl(value) {
 function parseUpdateInterval(value) {
 	const num = Number(String(value || '').trim());
 	if (!Number.isFinite(num) || num <= 0) return '';
-	return String(Math.min(Math.floor(num), 720));
+	// 必须夹在 1~720 之间：机场发 `0.5` 时 floor 会得到 0，
+	// 而 0 在客户端看来是「无效 / 不自动更新」，等于把这条信息变成了噪音。
+	return String(Math.min(Math.max(Math.floor(num), 1), 720));
 }
 
 /**
@@ -138,7 +149,10 @@ function parseFileName(value) {
 
 /** 组装 Content-Disposition，非 ASCII 文件名用 RFC 5987 编码 */
 function buildContentDisposition(fileName) {
-	const ascii = fileName.replace(/[^\x20-\x7e]/g, '');
+	// 剥掉非 ASCII 后的残渣可能只剩扩展名（「落云.yaml」→ 「.yaml」），
+	// 这种「文件名」对客户端毫无意义，直接用通用名兜底。
+	const stripped = fileName.replace(/[^\x20-\x7e]/g, '').trim();
+	const ascii = /^[A-Za-z0-9][\x20-\x7e]*$/.test(stripped) ? stripped : '';
 	if (ascii && ascii === fileName) {
 		return `attachment; filename="${ascii}"`;
 	}

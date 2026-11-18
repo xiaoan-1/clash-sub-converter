@@ -12,6 +12,42 @@
 		<div class="container">
 			<h1>订阅转换配置</h1>
 
+			<!-- ====== 我的订阅（保存后客户端可直接填 /sub） ====== -->
+			<div class="card">
+				<h2>📮 我的订阅</h2>
+				<div class="kw-hint">
+					保存后，代理软件里只需填下方的订阅转换地址，服务端就会用这些订阅自动拉取并转换。
+					配置按访问 IP 区分，每人一份。
+				</div>
+				<textarea
+					id="savedSubUrls"
+					class="url-textarea"
+					rows="3"
+					oninput="onSubUrlsInput()"
+					placeholder="每行一个订阅链接&#10;例如：&#10;https://sub.example.com/api/v1/client/subscribe?token=..."
+				></textarea>
+				<div class="source-actions">
+					<span id="subSaveStatus" class="autosave-state"></span>
+					<button class="btn btn-primary" id="subSaveBtn" onclick="saveSubscriptions()">
+						💾 保存订阅地址
+					</button>
+				</div>
+
+				<h3 style="margin-top: 16px">客户端订阅地址</h3>
+				<div class="kw-hint">
+					直接填进代理软件的「订阅地址」（不是「订阅转换服务地址」）
+				</div>
+				<div class="sub-endpoint">
+					<code id="subEndpoint">/sub</code>
+					<button class="btn btn-outline btn-sm" onclick="copySubEndpoint()">复制</button>
+				</div>
+				<div class="kw-hint" style="margin-top: 8px">
+					⚠️ 订阅按「请求来源 IP」区分：保存与拉取必须来自同一出口 IP（同一台机器，或同一
+					NAT 下）。部署在 Nginx / Caddy 后面时需设置
+					TRUST_PROXY，否则所有设备会被算成同一个人。
+				</div>
+			</div>
+
 			<!-- ====== 订阅来源 ====== -->
 			<div class="card">
 				<h2>订阅来源</h2>

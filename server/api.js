@@ -262,10 +262,15 @@ router.get('/user-agents', (req, res) => {
 router.get('/config', (req, res) => {
 	const scope = guests.scopeOf(req);
 	const config = readConfig(scope.guest);
-	log.debug('GET /api/config', { ip: scope.ip, guest: scope.guest });
-	// scope 与 config 平级返回，不展开进 config：
-	// 否则前端回传时会把 scope 当成配置字段一起存进配置文件。
-	res.json({ ...config, scope });
+	log.debug('GET /api/config', {
+		ip: scope.ip,
+		guest: scope.guest,
+		subscriptions: config.subscriptions.length,
+	});
+	// scope / limits 与 config 平级返回，不展开进 config：
+	// 否则前端回传时会把它们当成配置字段一起存进配置文件。
+	// limits 告诉页面「订阅地址最多存几个」，避免前端再拄一份上限常量。
+	res.json({ ...config, scope, limits: { subscriptions: MAX_URLS } });
 });
 
 /**
@@ -286,13 +291,14 @@ router.post('/config', (req, res) => {
 			return res.status(400).json({ error: '无效的配置格式' });
 		}
 
-		// GET 时把 scope 与 config 平级返回，前端若原样回传会带上它 ——
-		// 这里显式剔除，避免把请求身份信息当成配置持久化。
-		const { scope: _ignored, ...clean } = newConfig;
+		// GET 时把 scope / limits 与 config 平级返回，前端若原样回传会带上它们 ——
+		// 这里显式剔除，避免把请求身份信息与只读上限当成配置持久化。
+		const { scope: _ignored, limits: _limits, ...clean } = newConfig;
 
 		const saved = saveConfig(clean, scope.guest);
 		log.info('POST /api/config 完成', {
 			groups: clean.groups.length,
+			subscriptions: Array.isArray(saved.subscriptions) ? saved.subscriptions.length : 0,
 			ip: scope.ip,
 			guest: scope.guest,
 		});

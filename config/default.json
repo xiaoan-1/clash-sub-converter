@@ -3,6 +3,7 @@
     "userAgent": "auto",
     "customUserAgent": ""
   },
+  "subscriptions": [],
   "nodeFilters": {
     "hideDomestic": true,
     "hideInternational": false

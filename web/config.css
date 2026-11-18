@@ -633,3 +633,22 @@ h3 {
 .autosave-err {
 	color: #ff4d4f;
 }
+
+/* ===== 我的订阅：客户端订阅地址 ===== */
+.sub-endpoint {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 10px 14px;
+	background: #f7f9fc;
+	border: 1px solid #e6ebf2;
+	border-radius: 8px;
+}
+.sub-endpoint code {
+	flex: 1;
+	font-family: 'Fira Code', 'Consolas', monospace;
+	font-size: 13px;
+	color: #2c3e50;
+	word-break: break-all;
+	user-select: all;
+}
