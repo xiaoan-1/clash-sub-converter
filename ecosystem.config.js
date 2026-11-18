@@ -6,7 +6,10 @@ module.exports = {
 			instances: 1,
 			exec_mode: 'fork',
 			watch: false,
-			max_memory_restart: '200M',
+			// max_memory_restart 必须高于「订阅正文上限 × 解析峰值倍率（约 3~5 倍）」。
+			// 默认 MAX_SUB_BYTES=32MB，解析一份大 YAML 峰值可达 150MB+，
+			// 200M 会让进程在转换时被 PM2 反复重启（表现为随机 502）。
+			max_memory_restart: '400M',
 			env: {
 				NODE_ENV: 'production',
 				PORT: 25500,
@@ -21,6 +24,16 @@ module.exports = {
 				// 排查完想减少日志量，把 LOG_LEVEL 改成 info 即可。
 				LOG_LEVEL: 'debug',
 				LOG_CONSOLE_LEVEL: 'info',
+
+				// ---- 资源上限（防单个请求拖垮服务）----
+				// 单次请求最多接受的订阅份数（| 分隔）
+				MAX_SUB_URLS: '10',
+				// 一次请求拉取全部订阅的总耗时预算（毫秒）；超出后剩余订阅直接判失败
+				SUB_TOTAL_TIMEOUT_MS: '60000',
+				// 单份订阅正文体积上限（字节，默认 32 × 1024 × 1024）
+				MAX_SUB_BYTES: String(32 * 1024 * 1024),
+				// 同时进行的转换请求数，超出返回 503 + Retry-After
+				MAX_CONCURRENT_CONVERTS: '4',
 
 				// ---- 访客配置（按访问者 IP 隔离，见 src/user/guests.js）----
 				// 所有访问者（含本机）一视同仁，各写自己的 guests/<IP>.json；

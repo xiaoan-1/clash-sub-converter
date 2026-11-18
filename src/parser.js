@@ -182,11 +182,15 @@ function decodeSubscriptionContent(content) {
  * 支持格式:
  *   - URI 列表: 各协议 URI（见 PROTOCOL_PARSERS 注册表）
  *   - Clash YAML: 包含 proxies: 数组的 YAML 配置
+ *
+ * @param {string} content 原始订阅文本
+ * @param {string} [decodedContent] 已解码的文本（调用方已算过时传入，避免重复 base64 解码）
  */
-function parseSubscription(content) {
+function parseSubscription(content, decodedContent) {
 	// 尝试 Base64 解码（仅当解码结果可解析时才采用，见 decodeSubscriptionContent）
 	const raw = (content || '').trim();
-	const decoded = decodeSubscriptionContent(content);
+	const decoded =
+		typeof decodedContent === 'string' ? decodedContent : decodeSubscriptionContent(content);
 	const wasBase64 = decoded !== raw;
 
 	// 优先尝试 Clash YAML 格式（包含 proxies 数组）
@@ -297,9 +301,10 @@ function parseSubscription(content) {
  * 另外 mihomo 不允许代理重名，因此同名节点只保留最先出现的那一个。
  *
  * @param {string[]} sources 每份订阅的原始文本
+ * @param {string[]} [decodedList] 与 sources 一一对应的已解码文本（可选）
  * @returns {{ proxies: Array, dropped: number }} dropped 为因重名被丢弃的节点数
  */
-function parseSubscriptionList(sources = []) {
+function parseSubscriptionList(sources = [], decodedList = []) {
 	const proxies = [];
 	const seenNames = new Set();
 	let dropped = 0;
@@ -315,15 +320,18 @@ function parseSubscriptionList(sources = []) {
 			return;
 		}
 
-		// 判定格式：用于排查「机场给的是 YAML 还是 base64 的 URI 列表」
+		// 同一次解析里只需要解码一次：判格式与真正解析共用结果
 		const trimmed = String(text).trim();
-		const decoded = decodeSubscriptionContent(trimmed);
+		const decoded =
+			typeof decodedList[index] === 'string'
+				? decodedList[index]
+				: decodeSubscriptionContent(trimmed);
 		const base64 = decoded !== trimmed;
 		let format = 'unknown';
 		if (isClashYamlText(decoded)) format = 'clash-yaml';
 		else if (isUriListText(decoded)) format = 'uri-list';
 
-		const list = parseSubscription(text);
+		const list = parseSubscription(text, decoded);
 		let ownDropped = 0;
 
 		for (const proxy of list) {
@@ -371,10 +379,12 @@ function parseSubscriptionList(sources = []) {
  * 转换时透传它，保证转换结果与「直接用订阅链接导入」行为等价。
  * 仅对 Clash YAML 类输入有意义：URI 列表 / Base64 的 URI 列表不含 dns，返回 null。
  * @param {string} content - 原始订阅文本（可能为 Base64 或 Clash YAML）
+ * @param {string} [decodedContent] 已解码的文本（调用方已算过时传入）
  * @returns {Object|null} dns 配置对象，或 null
  */
-function extractClashDns(content) {
-	const decoded = decodeSubscriptionContent(content);
+function extractClashDns(content, decodedContent) {
+	const decoded =
+		typeof decodedContent === 'string' ? decodedContent : decodeSubscriptionContent(content);
 	try {
 		const doc = yaml.load(decoded);
 		// 独立解析 dns，不要求文档同时含 proxies；且仅接受对象类型的 dns
@@ -398,4 +408,5 @@ module.exports = {
 	parseSubscription,
 	parseSubscriptionList,
 	extractClashDns,
+	decodeSubscriptionContent,
 };

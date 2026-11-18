@@ -24,6 +24,15 @@ const TEST_URL = 'http://www.gstatic.com/generate_204';
 const OTHER_LABEL = '🌐 其他地区';
 
 /**
+ * 内置分组名（节点不能与之同名）。
+ *
+ * 这些名字被规则 target 与其他分组引用，属于**结构的一部分**，
+ * 因此不接受配置改名 —— 改了会让规则指向不存在的分组，
+ * 内核直接拒绝加载整份配置。
+ */
+const BUILTIN_GROUP_NAMES = ['🚀 节点选择', '♻️ 自动选择', CN_LABEL, '🐟 漏网之鱼'];
+
+/**
  * 构建关键词匹配器。
  *
  * 短 ASCII 词（CN / IN / US / HK …）必须按「词边界」匹配：子串匹配会让
@@ -238,11 +247,18 @@ function generateProxyGroups(proxies, options = {}) {
 	//    这也是为什么它不能用 FIXED_OPTIONS —— 那三个选项里有两个是分组。
 	//    叶子组只列具体节点，与地区组（🇭🇰 香港 等）的结构保持一致。
 	if (domesticEnabled) {
+		// defaultProxy 可配置（默认 DIRECT）：排头即 Clash 的默认出口
+		const domesticDefault = domesticCfg?.defaultProxy || 'DIRECT';
+		const domesticList = ['DIRECT', ...domesticProxies].filter(
+			(n, i, arr) => arr.indexOf(n) === i,
+		);
+		// 把配置指定的出口提到排头，其余保持原顺序
+		const ordered = [domesticDefault, ...domesticList.filter(n => n !== domesticDefault)];
 		groups.push({
 			name: CN_LABEL,
 			type: domesticCfg?.type || 'select',
-			// DIRECT 排头作为默认出口：国内节点走直连更合理
-			proxies: ['DIRECT', ...domesticProxies],
+			// DIRECT 本身就在列表里；defaultProxy 指向具体节点时同样保证存在
+			proxies: ordered,
 		});
 	}
 
@@ -295,13 +311,20 @@ function generateProxyGroups(proxies, options = {}) {
 	}
 
 	// 6. 🐟 漏网之鱼（必须，不可禁用）
-	//    首项仍为「🚀 节点选择」（沿用跟随全局选择的传统默认行为），
-	//    但额外补上「♻️ 自动选择」：否则用户想让它直接全局自动时只能绕经
-	//    「节点选择」，多一跳且受该组当前状态影响。
+	//    默认出口可配置（default.json 的 builtin:fallback.defaultProxy，默认「🚀 节点选择」），
+	//    但其余候选项固定，且不应重复出现。
+	const fallbackCfg = builtinMap.get('fallback');
+	const fallbackDefault = fallbackCfg?.defaultProxy || '🚀 节点选择';
+	const fallbackOptions = ['🚀 节点选择', '♻️ 自动选择', 'DIRECT'];
 	groups.push({
 		name: '🐟 漏网之鱼',
 		type: 'select',
-		proxies: ['🚀 节点选择', '♻️ 自动选择', 'DIRECT', ...candidates],
+		proxies: [
+			fallbackDefault,
+			...fallbackOptions.filter(o => o !== fallbackDefault),
+			...candidates.filter(c => c !== fallbackDefault && !fallbackOptions.includes(c)),
+		],
+		defaultProxy: fallbackDefault,
 	});
 
 	// 7. 地区分组统一追加在最后（见第 4 步说明）
@@ -426,4 +449,5 @@ module.exports = {
 	normalizeExcludeKeywords,
 	filterByExcludeKeywords,
 	CN_LABEL,
+	BUILTIN_GROUP_NAMES,
 };

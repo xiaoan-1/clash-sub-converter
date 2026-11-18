@@ -22,6 +22,39 @@ const RULES_DIR = path.join(__dirname, '..', 'config', 'rules');
  */
 const ALWAYS_ON_RULE_ID = 'common';
 
+/**
+ * 规则尾部的修饰段（不是出口）。这些段出现在 target 之后，
+ * 识别 target 时必须跳过 —— 否则 `IP-CIDR,10.0.0.0/8,DIRECT,no-resolve`
+ * 的「target」会被当成 no-resolve。
+ */
+const RULE_MODIFIERS = new Set(['no-resolve', 'src']);
+
+/**
+ * 取规则里显式写出的出口（target）。
+ *
+ * 规则格式为 `TYPE,VALUE[,TARGET][,MODIFIERS]`，所以：
+ *   - 少于 3 段 → 没有 target（如 `IP-CIDR,10.0.0.0/8`）
+ *   - 跳过尾部修饰段后，最后一段才是 target
+ *   - MATCH / FINAL 只有两段，第二段就是 target
+ *
+ * 仅靠「末段」判断会把 `IP-CIDR,1.2.3.4/32,no-resolve` 误判成「已带 target」
+ * 而丢掉出口，mihomo 会拒绝加载整份配置。
+ *
+ * @param {string} rule
+ * @returns {string} 不含 target 时返回空串
+ */
+function ruleTargetOf(rule) {
+	const parts = String(rule)
+		.split(',')
+		.map(p => p.trim());
+	if (!parts.length) return '';
+	if (/^(MATCH|FINAL)$/i.test(parts[0])) return parts[1] || '';
+
+	let end = parts.length - 1;
+	while (end >= 2 && RULE_MODIFIERS.has(parts[end])) end--;
+	return end >= 2 ? parts[end] : '';
+}
+
 class RuleManager {
 	constructor() {
 		this.rules = new Map(); // id -> ruleConfig
@@ -39,7 +72,13 @@ class RuleManager {
 			return;
 		}
 
-		const files = fs.readdirSync(RULES_DIR).filter(f => f.endsWith('.json'));
+		// 排序：规则是 first-match，顺序直接决定分流结果。
+		// readdir 的顺序由文件系统决定，不同机器 / 不同 Node 版本可能不同，
+		// 不排序会让同一份配置在不同机器上产生不同的分流行为，且无法复现。
+		const files = fs
+			.readdirSync(RULES_DIR)
+			.filter(f => f.endsWith('.json'))
+			.sort();
 		const failed = [];
 		for (const file of files) {
 			try {
@@ -119,9 +158,9 @@ class RuleManager {
 
 			const target = ruleTarget || name;
 			for (const rule of patterns) {
-				// 仅当末段是已知 target 时才认为已自带出口；否则补上本分组的 target
-				const last = rule.slice(rule.lastIndexOf(',') + 1).trim();
-				rules.push(knownTargets.has(last) ? rule : `${rule},${target}`);
+				// 仅当「已带 target」时才不补出口；判定见 ruleTargetOf 的说明。
+				const explicit = ruleTargetOf(rule);
+				rules.push(knownTargets.has(explicit) ? rule : `${rule},${target}`);
 			}
 		}
 
@@ -147,4 +186,4 @@ class RuleManager {
 // 走 HTTP 写入既无必要也绕过了 git；接口移除后这些方法成了死代码，一并删掉。
 const ruleManager = new RuleManager();
 
-module.exports = { ruleManager, ALWAYS_ON_RULE_ID };
+module.exports = { ruleManager, ALWAYS_ON_RULE_ID, ruleTargetOf, RULE_MODIFIERS };

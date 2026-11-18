@@ -10,14 +10,14 @@ const { parseNodeUrl } = require('./utils');
 function parseHysteria2(link) {
 	const parsed = parseNodeUrl(link);
 	if (!parsed) return null;
-	const { url, name } = parsed;
+	const { url, name, server, username } = parsed;
 
 	const proxy = {
 		name,
 		type: 'hysteria2',
-		server: url.hostname,
+		server,
 		port: parseInt(url.port),
-		password: url.username,
+		password: username,
 		up: url.searchParams.get('up') || '20 Mbps',
 		down: url.searchParams.get('down') || '50 Mbps',
 		udp: true,
@@ -40,12 +40,12 @@ function parseHysteria2(link) {
 function parseHysteria(link) {
 	const parsed = parseNodeUrl(link);
 	if (!parsed) return null;
-	const { url, name } = parsed;
+	const { url, name, server, username } = parsed;
 
 	const proxy = {
 		name,
 		type: 'hysteria',
-		server: url.hostname,
+		server,
 		port: parseInt(url.port),
 		up: url.searchParams.get('up') || '20 Mbps',
 		down: url.searchParams.get('down') || '50 Mbps',
@@ -60,8 +60,8 @@ function parseHysteria(link) {
 		const auth = url.searchParams.get('auth');
 		if (auth) {
 			proxy.auth = auth;
-		} else if (url.username) {
-			proxy['auth-str'] = url.username;
+		} else if (username) {
+			proxy['auth-str'] = username;
 		}
 	}
 

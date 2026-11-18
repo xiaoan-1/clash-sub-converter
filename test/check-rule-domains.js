@@ -65,12 +65,16 @@ const RETRIES = 3;
 const SKIP_RULE_IDS = new Set(['common']);
 
 /** 特殊用途域名（RFC 6761 / 6762 ，以及各种路由器默认域名），同样不该查公网 */
-const SPECIAL_USE = /(^|\.)(local|localhost|internal|lan|home|home\.arpa|in-addr\.arpa|test|invalid|example|onion)$/;
+const SPECIAL_USE =
+	/(^|\.)(local|localhost|internal|lan|home|home\.arpa|in-addr\.arpa|test|invalid|example|onion)$/;
 
 /** 收集规则文件里的域名，并记下它出现在哪些分组 */
 function collectDomains() {
 	const hosts = new Map();
-	for (const f of fs.readdirSync(RULES_DIR).filter(f => f.endsWith('.json')).sort()) {
+	for (const f of fs
+		.readdirSync(RULES_DIR)
+		.filter(f => f.endsWith('.json'))
+		.sort()) {
 		const j = JSON.parse(fs.readFileSync(path.join(RULES_DIR, f), 'utf8'));
 		if (SKIP_RULE_IDS.has(j.id)) continue;
 		for (const rule of j.rules) {
@@ -163,7 +167,9 @@ async function main() {
 		return;
 	}
 
-	console.log(`LIVE ${live.length} | NO-A ${noA.length} | NXDOMAIN ${dead.length} | UNKNOWN ${unknownRows.length}\n`);
+	console.log(
+		`LIVE ${live.length} | NO-A ${noA.length} | NXDOMAIN ${dead.length} | UNKNOWN ${unknownRows.length}\n`,
+	);
 
 	if (dead.length) {
 		console.log(`=== NXDOMAIN（${dead.length}）—— 域名已不存在，可以删 ===`);

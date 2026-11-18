@@ -12,14 +12,14 @@ const { parseNodeUrl } = require('./utils');
 function parseVless(link) {
 	const parsed = parseNodeUrl(link);
 	if (!parsed) return null;
-	const { url, name } = parsed;
+	const { url, name, server, username } = parsed;
 
 	const proxy = {
 		name,
 		type: 'vless',
-		server: url.hostname,
+		server,
 		port: parseInt(url.port),
-		uuid: decodeURIComponent(url.username),
+		uuid: username,
 		udp: true,
 	};
 

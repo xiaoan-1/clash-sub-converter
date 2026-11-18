@@ -7,14 +7,14 @@ const { parseNodeUrl } = require('./utils');
 function parseWireGuard(link) {
 	const parsed = parseNodeUrl(link);
 	if (!parsed) return null;
-	const { url, name } = parsed;
+	const { url, name, server, username } = parsed;
 
 	const proxy = {
 		name,
 		type: 'wireguard',
-		server: url.hostname,
+		server,
 		port: parseInt(url.port),
-		'private-key': decodeURIComponent(url.username),
+		'private-key': username,
 		udp: true,
 	};
 

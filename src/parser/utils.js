@@ -17,6 +17,17 @@ function safeDecodeURIComponent(str) {
 }
 
 /**
+ * 去掉 IPv6 的方括号。
+ *
+ * WHATWG 的 URL.hostname 对 IPv6 字面量保留方括号（实测 `[2001:db8::1]`），
+ * 直接写进 Clash 的 `server` 字段会被内核当成非法主机名。
+ */
+function normalizeHost(hostname) {
+	const h = String(hostname || '');
+	return h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
+}
+
+/**
  * 把 `scheme://...` 节点链接解析成 URL，并取出节点名。
  *
  * 各协议解析器原本各写一遍 `new URL(link)` + `decodeURIComponent(url.hash)`，
@@ -26,8 +37,14 @@ function safeDecodeURIComponent(str) {
  * 异常会被 parseSubscription 的 try/catch 兜住并丢弃该节点 —— 结果是「订阅里
  * 有这条节点，转换后却凭空少了」，且日志里只有一句 URI malformed 看不出是哪条。
  *
+ * 同时这里统一处理了两件各解析器容易各写各的事：
+ *   1. IPv6 主机名去掉方括号（见 normalizeHost）
+ *   2. userinfo 解百分号编码 —— URL 会保留编码形态，`trojan://p%40ss@host`
+ *      的密码不解码就是字面量 `p%40ss`，节点必然连不上
+ *
  * @param {string} link 原始节点链接
- * @returns {{url:URL, name:string}|null} 无法解析成 URL 时返回 null
+ * @returns {{url:URL, name:string, server:string, username:string, password:string}|null}
+ *          无法解析成 URL 时返回 null
  */
 function parseNodeUrl(link) {
 	const s = String(link);
@@ -48,8 +65,15 @@ function parseNodeUrl(link) {
 	//   未编码 `#100%稳定`          → 裸 % 解不出 → 原样保留「100%稳定」
 	const hashIdx = s.indexOf('#');
 	const raw = hashIdx >= 0 ? s.slice(hashIdx + 1) : '';
-	const name = safeDecodeURIComponent(raw).trim() || `${url.hostname}:${url.port}`;
-	return { url, name };
+	const server = normalizeHost(url.hostname);
+	const name = safeDecodeURIComponent(raw).trim() || `${server}:${url.port}`;
+	return {
+		url,
+		name,
+		server,
+		username: safeDecodeURIComponent(url.username),
+		password: safeDecodeURIComponent(url.password),
+	};
 }
 
 /**
@@ -79,4 +103,4 @@ function parseSsUserInfo(userinfo) {
 	};
 }
 
-module.exports = { safeDecodeURIComponent, parseSsUserInfo, parseNodeUrl };
+module.exports = { safeDecodeURIComponent, parseSsUserInfo, parseNodeUrl, normalizeHost };

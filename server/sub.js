@@ -1,7 +1,16 @@
 const express = require('express');
-const { parseSubscriptionList, extractClashDns } = require('../src/parser');
+const {
+	parseSubscriptionList,
+	extractClashDns,
+	decodeSubscriptionContent,
+} = require('../src/parser');
 const { convertToClash, convertToSurge } = require('../src/converter');
-const { requestSubscription, applySubscriptionHeaders } = require('../src/fetcher');
+const {
+	requestSubscription,
+	applySubscriptionHeaders,
+	MAX_URLS,
+	newDeadline,
+} = require('../src/fetcher');
 const { parseRuleOptions } = require('../src/rule-groups');
 const { readConfig } = require('../src/user/user-config');
 const { resolveUserAgent, sanitizeUa } = require('../src/user/user-agents');
@@ -55,6 +64,15 @@ router.get('/', async (req, res) => {
 			.map(u => u.trim())
 			.filter(Boolean);
 
+		// 份数上限：串行拉取下每份最多 15s，不设上限时单个请求能占用几分钟
+		if (urls.length > MAX_URLS) {
+			log.warn('订阅份数超过上限', { urls: urls.length, limit: MAX_URLS });
+			return res.status(400).json({
+				error: `订阅份数超过上限（${MAX_URLS}）`,
+				hint: `请把订阅合并到 ${MAX_URLS} 个以内，或调大环境变量 MAX_SUB_URLS。`,
+			});
+		}
+
 		// 拉取订阅时使用的 UA：?ua= 显式指定 > 配置 > 透传调用方（浏览器则回退预设）
 		// 这里读的是「本访客那份配置」：UA / 过滤 / 分组都随访客各自生效
 		const callerUA = req.get('user-agent') || '';
@@ -65,7 +83,12 @@ router.get('/', async (req, res) => {
 		const uaResolved = queryUa
 			? { ua: queryUa, source: '?ua= 显式指定' }
 			: resolveUserAgent(fetchCfg, callerUA);
-		const fetchOpts = { userAgent: uaResolved.ua, uaSource: uaResolved.source };
+		const fetchOpts = {
+			userAgent: uaResolved.ua,
+			uaSource: uaResolved.source,
+			// 所有订阅共享这一份总预算，避免「10 份 × 15s」长时间占住请求
+			deadline: newDeadline(),
+		};
 
 		log.info('请求进入', {
 			target,
@@ -166,7 +189,10 @@ router.get('/', async (req, res) => {
 
 		// 多订阅必须分别解析再合并：把多份 YAML 直接拼接会产生重复根键，
 		// yaml.load 会直接失败（表现为「No valid proxies found」）。
-		const { proxies, dropped } = parseSubscriptionList(metas.map(m => m.text));
+		// 解码只做一次：判格式、解析、DNS 提取共用同一个结果。
+		const sourceTexts = metas.map(m => m.text);
+		const decodedSources = sourceTexts.map(decodeSubscriptionContent);
+		const { proxies, dropped } = parseSubscriptionList(sourceTexts, decodedSources);
 		if (dropped) log.info('合并多订阅时丢弃同名节点', { dropped });
 
 		if (proxies.length === 0) {
@@ -210,7 +236,9 @@ router.get('/', async (req, res) => {
 			// 必须扫全部订阅再取第一个命中的：早期只取 metas[0]，
 			// 于是「第一份是 URI 列表、第二份是 Clash YAML」时 dns 会静默丢失，
 			// 与 /api/convert（sources.map(extractClashDns).find(Boolean)）行为不一致。
-			const srcDns = metas.map(m => extractClashDns(m.text)).find(Boolean);
+			const srcDns = sourceTexts
+				.map((t, i) => extractClashDns(t, decodedSources[i]))
+				.find(Boolean);
 			// guestId 决定用哪份过滤开关 / 分组策略
 			const convertOptions = { ruleOptions, guestId: scope.guest };
 			if (srcDns) convertOptions.dns = srcDns;
@@ -228,13 +256,27 @@ router.get('/', async (req, res) => {
 
 		res.type(outType).send(output);
 	} catch (err) {
-		// 全部节点被过滤属用户配置问题：返回 400 + 可操作提示，而非 500 服务端错误
-		if (err.code === 'ALL_PROXIES_FILTERED') {
-			log.warn('全部节点被过滤条件排除，返回 400', { err: err.message, hint: err.hint });
+		// 输入 / 配置问题 → 400，其余才是服务端故障：
+		//   ALL_PROXIES_FILTERED 全部节点被过滤
+		//   stage=guard          订阅地址未通过安全校验（SSRF）
+		//   stage=size           订阅正文超过上限
+		const userError =
+			err.code === 'ALL_PROXIES_FILTERED' || err.stage === 'guard' || err.stage === 'size';
+		if (userError) {
+			log.warn('请求被拒绝（属输入 / 配置问题）', {
+				err: err.message,
+				hint: err.hint,
+				stage: err.stage,
+				code: err.code,
+			});
 			// 上边的 applySubscriptionHeaders 可能已设置下载头，
 			// 这里必须撤掉，否则浏览器会把错误 JSON 当成文件下载。
 			res.removeHeader('Content-Disposition');
-			return res.status(400).json({ error: err.message, hint: err.hint });
+			return res.status(400).json({
+				error: err.message,
+				hint: err.hint,
+				...(err.code === 'ALL_PROXIES_FILTERED' ? { totalNodes: err.totalNodes } : {}),
+			});
 		}
 		log.fail('转换过程中发生未预期的错误', err);
 		res.status(500).json({ error: 'Convert failed: ' + err.message });

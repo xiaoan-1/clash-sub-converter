@@ -39,7 +39,7 @@ function normalizeBasePath(raw) {
 const BASE_PATH = normalizeBasePath(process.env.BASE_PATH);
 
 // 反向代理后面必须设置 TRUST_PROXY，否则 req.ip 恒为 127.0.0.1，
-// 所有访客会被判定成同一个人（详见 src/guests.js）
+// 所有访客会被判定成同一个人（详见 src/user/guests.js）
 const TRUST_PROXY = guests.parseTrustProxy(process.env.TRUST_PROXY);
 app.set('trust proxy', TRUST_PROXY);
 
@@ -138,8 +138,10 @@ function guardWriteOrigin(req, res, next) {
 		return res.status(403).json({ error: '来源非法（Origin 无法解析）' });
 	}
 
-	// X-Forwarded-Host 可能是逗号分隔的多跳列表，取第一个（最靠近客户端的那一跳）
-	const forwarded = (req.get('x-forwarded-host') || '').split(',')[0].trim();
+	// X-Forwarded-Host 只在显式启用了 trust proxy 时才采信：
+	// 没部署在反向代理后面时，这个头完全由客户端控制，采信它等于允许
+	// 攻击者伪造「请求来源主机」，从而绕过本校验。
+	const forwarded = TRUST_PROXY ? (req.get('x-forwarded-host') || '').split(',')[0].trim() : '';
 	const candidates = [forwarded, req.get('host')].filter(Boolean);
 
 	if (!candidates.includes(originHost)) {
@@ -150,6 +152,41 @@ function guardWriteOrigin(req, res, next) {
 router.use(guardWriteOrigin);
 
 // ===================== 路由 =====================
+
+/**
+ * 同时进行的转换请求上限。
+ *
+ * js-yaml 的解析是同步的：单个大订阅就能把事件循环占住几十毫秒，
+ * 一批并发请求叠加会连配置页都打不开。这里做的是「快速失败」而不是排队 ——
+ * 订阅客户端本来就会定时重试，排队只会让请求越积越多。
+ */
+const MAX_CONVERTS =
+	Number(process.env.MAX_CONCURRENT_CONVERTS) > 0
+		? Number(process.env.MAX_CONCURRENT_CONVERTS)
+		: 4;
+let activeConverts = 0;
+
+function limitConverts(req, res, next) {
+	if (activeConverts >= MAX_CONVERTS) {
+		// 503 + Retry-After：客户端（及订阅客户端）据此退避重试
+		res.setHeader('Retry-After', '5');
+		return res.status(503).json({
+			error: '转换请求过多，请稍后重试',
+			hint: `当前并发上限为 ${MAX_CONVERTS}，可用环境变量 MAX_CONCURRENT_CONVERTS 调整。`,
+		});
+	}
+	activeConverts++;
+	// close 在响应完成或被客户端中断时都会触发（Node 16+），
+	// 用 once 保证计数只减一次
+	res.once('close', () => {
+		activeConverts--;
+	});
+	next();
+}
+
+// 只限制真正做解析 / 拉取的两个入口，配置页等静态请求不受影响
+router.use('/sub', limitConverts);
+router.use('/api/convert', limitConverts);
 
 // 配置页面（子路径部署时为 域名/clash/cfg）
 router.get('/cfg', (req, res) => {
@@ -208,8 +245,28 @@ app.use((err, req, res, next) => {
 	res.status(500).json({ error: '服务器内部错误' });
 });
 
-// 启动服务
-app.listen(PORT, HOST, () => {
+// ===================== 启动 =====================
+
+/**
+ * 进程级兜底。
+ *
+ * 异步代码里漏写的 try/catch 最终会落在这里 —— 至少留下一条完整日志，
+ * 而不是让进程静静地死掉（表现为「服务莫名其妙不响应」）。
+ * uncaughtException 之后进程状态已不可信，直接退出交给 PM2 重启。
+ */
+process.on('unhandledRejection', reason => {
+	const err = reason instanceof Error ? reason : new Error(String(reason));
+	bootLog.fail('未处理的 Promise 拒绝', err);
+});
+process.on('uncaughtException', err => {
+	bootLog.fail('未捕获异常，进程即将退出（PM2 会自动重启）', err);
+	process.exit(1);
+});
+
+/**
+ * 启动成功后的启动信息（打印访问地址与关键部署参数）。
+ */
+function onListening() {
 	// 部署子路径时把前缀一并打出来，免得照着终端里的地址去填 OpenClash 却是 404
 	const p = BASE_PATH;
 	const ips = getLocalIPs();
@@ -256,6 +313,20 @@ app.listen(PORT, HOST, () => {
 		guests: guestCount,
 	});
 	bootLog.info('排查提示：完整流程日志在 logs/app.log，仅问题在 logs/error.log');
-});
+}
 
-module.exports = app;
+/**
+ * 启动 HTTP 服务。
+ *
+ * 不在模块顶层直接 listen：那样任何 `require('./index')`（脚本 / 单测）
+ * 都会占住端口。只有作为入口运行时才自动启动（见下方 require.main 判断）。
+ *
+ * @returns {import('http').Server}
+ */
+function start() {
+	return app.listen(PORT, HOST, onListening);
+}
+
+if (require.main === module) start();
+
+module.exports = { app, start };

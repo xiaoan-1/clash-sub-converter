@@ -112,7 +112,10 @@
 			<div class="card">
 				<h2>📡 转换端点</h2>
 				<div class="url-box">GET /sub?url=<strong>{订阅链接}</strong>&target=clash</div>
-				<p style="font-size: 14px; color: #8b949e">返回完整的 Clash / Surge YAML 配置</p>
+				<p style="font-size: 14px; color: #8b949e">
+					返回 Clash YAML 配置；<code>target=surge</code> 时为简化版 Surge
+					配置（仅含语法确定的协议）
+				</p>
 			</div>
 
 			<div class="card">
@@ -144,31 +147,17 @@
 						<td><code>(?i)netflix</code></td>
 					</tr>
 					<tr>
-						<td><code>emoji</code></td>
-						<td>节点名添加 Emoji</td>
-						<td><code>true</code></td>
-					</tr>
-					<tr>
-						<td><code>udp</code></td>
-						<td>启用 UDP 转发</td>
-						<td><code>true</code></td>
-					</tr>
-					<tr>
-						<td><code>scv</code></td>
-						<td>跳过证书验证</td>
-						<td><code>true</code></td>
-					</tr>
-					<tr>
-						<td><code>sort</code></td>
-						<td>节点排序</td>
-						<td><code>true</code></td>
-					</tr>
-					<tr>
 						<td><code>ua</code></td>
 						<td>拉取订阅时使用的 UA（默认透传调用方的客户端 UA）</td>
 						<td><code>clash-verge/v2.0.0</code></td>
 					</tr>
 				</table>
+				<p style="font-size: 13px; color: #8b949e; margin-top: 8px">
+					⚠️ subconverter 的 <code>emoji</code> / <code>udp</code> / <code>scv</code> /
+					<code>sort</code> /
+					<code>config</code>
+					参数本服务不支持（节点字段与顺序完全取自订阅），传了也会被忽略。
+				</p>
 				<p style="font-size: 13px; color: #8b949e; margin-top: 12px">
 					⚠️
 					机场会校验拉取订阅的客户端标识。若与你的实际客户端不一致，可能被判定为「非本人操作」而作废订阅地址。

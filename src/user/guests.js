@@ -145,6 +145,15 @@ function scopeOf(req) {
 const known = new Set();
 
 /**
+ * 访客配置的进程内缓存：id -> { mtimeNs, size, data }。
+ *
+ * 一次 /sub 请求会调 readConfig 至少两次（取 fetch 配置 + 取分组/过滤），
+ * 每次都要同步读盘。用 mtimeNs + size 作为失效依据，
+ * 既能拿到最新结果（删文件/改文件立即生效），又省掉重复的 stat + parse。
+ */
+const cache = new Map();
+
+/**
  * 访客文件数量上限（可用环境变量 MAX_GUESTS 覆盖）。
  * 文件只在保存配置时创建，正常部署远达不到这个数；设上限是为了防止有人脚本化地
  * 反复 POST /api/config（开着反向代理时 X-Forwarded-For 可以随便编）把磁盘刷爆。
@@ -182,6 +191,8 @@ function createGuestConfig(guestId) {
 	// 空的差异 = 完全继承基准。不做 default.json 拷贝，理由见文件头注释。
 	writeFileAtomic(file, '{}\n');
 	known.add(id);
+	// 磁盘已变更，缓存必须失效（否则刚建的文件读到的是旧状态）
+	cache.delete(id);
 	log.info('新建访客配置（继承基准）', { guest: id, path: file, total: total + 1 });
 	return true;
 }
@@ -194,15 +205,34 @@ function createGuestConfig(guestId) {
  */
 function readGuestConfig(guestId) {
 	const id = normalizeGuestId(guestId);
+
+	let file;
+	let stat;
 	try {
-		return JSON.parse(fs.readFileSync(guestFile(id), 'utf-8'));
+		file = guestFile(id);
+		stat = fs.statSync(file, { bigint: true });
 	} catch (err) {
 		if (err.code === 'ENOENT') {
 			// 文件不存在 = 该访客从未保存过，或运维刚把他重置掉（删文件即重置，无需重启）。
 			// 同时清掉进程内缓存，否则删掉文件后每次请求都会走到下面的 fail 分支。
 			known.delete(id);
+			cache.delete(id);
 			return {};
 		}
+		log.fail('访客配置读取失败，已回退为继承基准', err, { guest: id });
+		return {};
+	}
+
+	const hit = cache.get(id);
+	if (hit && hit.mtimeNs === stat.mtimeNs && hit.size === stat.size) {
+		return hit.data;
+	}
+
+	try {
+		const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+		cache.set(id, { mtimeNs: stat.mtimeNs, size: stat.size, data });
+		return data;
+	} catch (err) {
 		log.fail('访客配置解析失败，已回退为继承基准', err, { guest: id });
 		return {};
 	}
@@ -243,6 +273,8 @@ function writeGuestConfig(guestId, data) {
 	const file = guestFile(id);
 	writeFileAtomic(file, JSON.stringify(data, null, 2));
 	known.add(id);
+	// 写入后失效缓存：下一次读会重新 stat + parse，保证刚存的配置立即可见
+	cache.delete(id);
 	return file;
 }
 

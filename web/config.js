@@ -40,7 +40,24 @@ window.addEventListener('DOMContentLoaded', function () {
 		loadUserConfig();
 	});
 	initFileZone();
+	initPresetClicks();
 });
+
+/**
+ * 预设关键词的点击事件。
+ *
+ * 用事件委托 + data-kw，而不是在 HTML 里拼 `onclick="addPreset('...')"`：
+ * 关键词是可编辑内容，内联事件里即使做了 HTML 转义，`&#39;` 也会在属性
+ * 解析时还原成单引号，keyword 一旦含引号就能闭掉字符串执行任意脚本。
+ */
+function initPresetClicks() {
+	var box = document.getElementById('kwPresets');
+	if (!box) return;
+	box.addEventListener('click', function (e) {
+		var el = e.target && e.target.closest ? e.target.closest('[data-kw]') : null;
+		if (el) addPreset(el.getAttribute('data-kw'));
+	});
+}
 
 // ========== 配置加载 ==========
 
@@ -589,9 +606,9 @@ function renderPresets() {
 		return (
 			'<span class="kw-preset' +
 			(used[kw] ? ' used' : '') +
-			'" onclick="addPreset(\'' +
+			'" data-kw="' +
 			esc(kw) +
-			'\')">' +
+			'">' +
 			esc(kw) +
 			'</span>'
 		);
@@ -604,9 +621,19 @@ function renderPresets() {
  * 「默认出口」下拉的候选。
  * 后端采用两级结构：上层 select 分组的候选是地区分组（香港/台湾…），
  * 因此这里必须与后端一致 —— 启用地区分组时只列地区，否则列具体节点。
+ *
+ * 「中国大陆」是叶子组（被节点选择引用，自己不能再引用分组，否则成环），
+ * 所以它的候选只能是具体节点。
  */
-function getProxyOptions() {
+function getProxyOptions(g) {
 	var fixed = ['🚀 节点选择', '♻️ 自动选择', 'DIRECT'];
+	if (g && g.builtin === 'domestic') {
+		return ['DIRECT'].concat(
+			getActiveNames().filter(function (n) {
+				return n !== 'DIRECT';
+			}),
+		);
+	}
 	if (allRegions.length) return fixed.concat(allRegions);
 	return fixed.concat(getActiveNames());
 }
@@ -642,7 +669,13 @@ function renderGroups() {
 				? '<span class="group-badge badge-builtin">内置</span>'
 				: '<span class="group-badge badge-rule">规则</span>';
 
-		var proxyOptions = getProxyOptions();
+		var proxyOptions = getProxyOptions(g);
+
+		// 「节点选择」「自动选择」的类型与默认出口由 Clash 的两级结构决定
+		// （默认出口 = 候选首项；自动选择由内核按延迟挑），改了也不会体现在输出里，
+		// 因此只读展示 —— 否则用户以为改了生效，实际被后端忽略。
+		var typeFixed = g.builtin === 'select' || g.builtin === 'auto';
+		var defaultFixed = typeFixed;
 
 		html +=
 			'<div class="group-card' +
@@ -655,7 +688,7 @@ function renderGroups() {
 			'<select class="group-select" onchange="var g=config.groups[' +
 			i +
 			'];g.type=this.value;renderGroups();scheduleSave()" ' +
-			(enabled ? '' : 'disabled') +
+			(enabled && !typeFixed ? '' : 'disabled') +
 			'>' +
 			'<option value="select" ' +
 			(g.type === 'select' ? 'selected' : '') +
@@ -663,25 +696,34 @@ function renderGroups() {
 			'<option value="url-test" ' +
 			(g.type === 'url-test' ? 'selected' : '') +
 			'>自动测速</option>' +
-			'</select>' +
-			'默认: <select class="group-select" onchange="config.groups[' +
-			i +
-			'].defaultProxy=this.value;scheduleSave()" ' +
-			(enabled ? '' : 'disabled') +
-			'>';
+			'</select>';
 
-		for (var j = 0; j < proxyOptions.length; j++) {
+		if (defaultFixed) {
 			html +=
-				'<option value="' +
-				esc(proxyOptions[j]) +
-				'" ' +
-				(g.defaultProxy === proxyOptions[j] ? 'selected' : '') +
-				'>' +
-				esc(proxyOptions[j]) +
-				'</option>';
-		}
+				'<span class="group-fixed" style="font-size:12px;color:#8b949e">默认: ' +
+				esc(g.builtin === 'auto' ? '内核自动测速' : '♻️ 自动选择') +
+				'</span>';
+		} else {
+			html +=
+				'默认: <select class="group-select" onchange="config.groups[' +
+				i +
+				'].defaultProxy=this.value;scheduleSave()" ' +
+				(enabled ? '' : 'disabled') +
+				'>';
 
-		html += '</select>';
+			for (var j = 0; j < proxyOptions.length; j++) {
+				html +=
+					'<option value="' +
+					esc(proxyOptions[j]) +
+					'" ' +
+					(g.defaultProxy === proxyOptions[j] ? 'selected' : '') +
+					'>' +
+					esc(proxyOptions[j]) +
+					'</option>';
+			}
+
+			html += '</select>';
+		}
 
 		if (mandatory) {
 			html += '<span style="font-size:11px;color:#bbb">(始终启用)</span>';
@@ -912,9 +954,11 @@ function clearStatus() {
 
 /**
  * HTML 转义。
- * 同时用于文本位置与属性位置（value="..."、onclick="f('...')"），
- * 而节点名直接来自订阅、完全不可信 —— 引号必须一并转义，
- * 否则一个名为 x" onfocus="alert(1)  的节点就能闭合属性并注入任意属性/事件。
+ *
+ * 只用于**文本位置与属性值位置**（`>...</...>`、`value="..."`）。
+ * 不能用来把值安全地嵌进内联事件（`onclick="f('...')"`）—— 属性解析时
+ * `&#39;` 会还原成单引号，照样能闭合字符串。内联事件一律改用
+ * data-* 属性 + 事件委托（见 initPresetClicks）。
  */
 function esc(s) {
 	return String(s === null || s === undefined ? '' : s)

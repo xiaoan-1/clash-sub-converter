@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Clash 订阅转换工具 - 增强分组和规则",
   "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "node index.js",
     "start": "pm2 start ecosystem.config.js",
@@ -13,7 +16,9 @@
     "delete": "pm2 delete clash-sub-converter",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node test/verify-with-mihomo.js",
+    "test": "node --test test/unit.test.js && node test/verify-with-mihomo.js",
+    "test:unit": "node --test test/unit.test.js",
+    "verify": "node test/verify-with-mihomo.js",
     "check:rules": "node test/check-rule-domains.js"
   },
   "devDependencies": {

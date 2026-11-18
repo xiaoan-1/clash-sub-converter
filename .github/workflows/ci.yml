@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 格式检查
+        run: pnpm format:check
+
+      # 先跑纯函数单测（秒级），失败时不必等内核下载
+      - name: 单元测试
+        run: pnpm test:unit
+
+      # 再把生成的配置交给真实 mihomo 加载，验证内核层面的语义约束
+      - name: 端到端校验（真实 mihomo）
+        run: pnpm verify
+        env:
+          MIHOMO_VERSION: v1.19.32

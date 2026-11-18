@@ -8,23 +8,23 @@ const { parseNodeUrl } = require('./utils');
 function parseTUIC(link) {
 	const parsed = parseNodeUrl(link);
 	if (!parsed) return null;
-	const { url, name } = parsed;
+	const { url, name, server, username, password } = parsed;
 
 	const proxy = {
 		name,
 		type: 'tuic',
-		server: url.hostname,
+		server,
 		port: parseInt(url.port),
 		udp: true,
 	};
 
 	// userinfo:uuid:password 由 URL 规范自动拆成 username/password（V5）；
 	// 只有单个 token 时 username 承载全部内容（V4）
-	if (url.username && url.password) {
-		proxy.uuid = url.username;
-		proxy.password = url.password;
-	} else if (url.username) {
-		proxy.token = url.username;
+	if (username && password) {
+		proxy.uuid = username;
+		proxy.password = password;
+	} else if (username) {
+		proxy.token = username;
 	}
 
 	const sni = url.searchParams.get('sni');

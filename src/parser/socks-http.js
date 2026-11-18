@@ -10,18 +10,18 @@ const { parseNodeUrl } = require('./utils');
 function parseSocks(link) {
 	const parsed = parseNodeUrl(link);
 	if (!parsed) return null;
-	const { url, name } = parsed;
+	const { url, name, server, username, password } = parsed;
 
 	const proxy = {
 		name,
 		type: 'socks5',
-		server: url.hostname,
+		server,
 		port: parseInt(url.port),
 		udp: true,
 	};
 
-	if (url.username) proxy.username = decodeURIComponent(url.username);
-	if (url.password) proxy.password = decodeURIComponent(url.password);
+	if (username) proxy.username = username;
+	if (password) proxy.password = password;
 
 	const tls = url.searchParams.get('tls');
 	if (tls === '1' || tls === 'true') proxy.tls = true;
@@ -44,18 +44,18 @@ function parseSocks(link) {
 function parseHttp(link) {
 	const parsed = parseNodeUrl(link);
 	if (!parsed) return null;
-	const { url, name } = parsed;
+	const { url, name, server, username, password } = parsed;
 
 	const proxy = {
 		name,
 		type: 'http',
-		server: url.hostname,
+		server,
 		port: parseInt(url.port || (url.protocol === 'https:' ? 443 : 80)),
 		udp: true,
 	};
 
-	if (url.username) proxy.username = decodeURIComponent(url.username);
-	if (url.password) proxy.password = decodeURIComponent(url.password);
+	if (username) proxy.username = username;
+	if (password) proxy.password = password;
 
 	// https:// 前缀默认 TLS
 	if (url.protocol === 'https:') proxy.tls = true;

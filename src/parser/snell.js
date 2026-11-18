@@ -7,14 +7,14 @@ const { parseNodeUrl } = require('./utils');
 function parseSnell(link) {
 	const parsed = parseNodeUrl(link);
 	if (!parsed) return null;
-	const { url, name } = parsed;
+	const { url, name, server, username } = parsed;
 
 	const proxy = {
 		name,
 		type: 'snell',
-		server: url.hostname,
+		server,
 		port: parseInt(url.port),
-		psk: decodeURIComponent(url.username),
+		psk: username,
 		udp: true,
 	};
 

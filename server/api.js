@@ -1,8 +1,12 @@
 const express = require('express');
-const { fetchSubscription } = require('../src/fetcher');
+const { fetchSubscription, MAX_URLS, newDeadline } = require('../src/fetcher');
 const { readConfig, saveConfig } = require('../src/user/user-config');
 const { listPresets, resolveUserAgent, sanitizeUa } = require('../src/user/user-agents');
-const { parseSubscriptionList, extractClashDns } = require('../src/parser');
+const {
+	parseSubscriptionList,
+	extractClashDns,
+	decodeSubscriptionContent,
+} = require('../src/parser');
 const { convertToClash } = require('../src/converter');
 const guests = require('../src/user/guests');
 const logger = require('../src/logger');
@@ -39,9 +43,13 @@ function uaOptions(req, override) {
  * 其余才是服务端故障 → 500。
  */
 function sendConvertError(res, err, tag) {
-	// 订阅地址未通过安全校验（SSRF 防护）：属用户输入问题 → 400
-	if (err.stage === 'guard') {
-		log.warn(`${tag} 订阅地址未通过安全校验`, { err: err.message, hint: err.hint });
+	// 订阅地址未通过安全校验（SSRF）、订阅正文超限：属用户输入问题 → 400
+	if (err.stage === 'guard' || err.stage === 'size') {
+		log.warn(`${tag} 请求被拒绝（属输入问题）`, {
+			err: err.message,
+			hint: err.hint,
+			stage: err.stage,
+		});
 		return res.status(400).json({ error: err.message, hint: err.hint });
 	}
 	if (err.code === 'ALL_PROXIES_FILTERED') {
@@ -72,20 +80,17 @@ router.post('/convert', async (req, res) => {
 	const timer = logger.timer();
 
 	try {
-		const {
-			urls = [],
-			nodeFilter = 'all',
-			excludeKeywords = [],
-			rawContent,
-			userAgent,
-		} = req.body;
+		// 注意 nodeFilter / excludeKeywords 不设默认值：它们只在「请求里显式出现」时
+		// 才覆盖访客配置。给个 `= 'all'` / `= []` 会让任何不传参的调用
+		// （包括只传 urls 的脚本）静默丢掉配置里的「隐藏国内」与默认排除关键词。
+		const { urls = [], nodeFilter, excludeKeywords, rawContent, userAgent } = req.body;
 
 		const client = req.ip || req.socket.remoteAddress || '-';
 		clog.info('请求进入', {
 			client,
 			urls: urls.length,
-			nodeFilter,
-			excludeKeywords: excludeKeywords.length,
+			nodeFilter: nodeFilter || '(配置)',
+			excludeKeywords: Array.isArray(excludeKeywords) ? excludeKeywords.length : '(配置)',
 			rawContent: rawContent
 				? logger.formatBytes(Buffer.byteLength(rawContent, 'utf-8'))
 				: '无',
@@ -110,7 +115,16 @@ router.post('/convert', async (req, res) => {
 				clog.warn('缺少订阅链接');
 				return res.status(400).json({ error: '缺少订阅链接' });
 			}
+			if (urls.length > MAX_URLS) {
+				clog.warn('订阅份数超过上限', { urls: urls.length, limit: MAX_URLS });
+				return res.status(400).json({
+					error: `订阅份数超过上限（${MAX_URLS}）`,
+					hint: `请把订阅合并到 ${MAX_URLS} 个以内，或调大环境变量 MAX_SUB_URLS。`,
+				});
+			}
 			const fetchOpts = uaOptions(req, userAgent);
+			// 多份订阅共享同一份总预算，避免串行拉取把请求拖到几分钟
+			fetchOpts.deadline = newDeadline();
 			usedUa = fetchOpts.userAgent;
 			usedUaSource = fetchOpts.uaSource;
 			clog.debug('拉取 UA 已确定', {
@@ -181,26 +195,34 @@ router.post('/convert', async (req, res) => {
 			});
 		}
 
-		const { proxies, dropped } = parseSubscriptionList(sources);
+		const decodedSources = sources.map(decodeSubscriptionContent);
+		const { proxies, dropped } = parseSubscriptionList(sources, decodedSources);
 		if (dropped) clog.info('合并多订阅时丢弃同名节点', { dropped });
 		if (proxies.length === 0) {
 			clog.warn('解析后没有任何有效节点，终止转换', { sources: sources.length });
 			return res.status(400).json({ error: '未找到有效代理节点' });
 		}
 
-		// 构建过滤参数
-		const nodeFilters = {
-			hideDomestic: nodeFilter === 'hideDomestic',
-			hideInternational: nodeFilter === 'hideInternational',
-		};
+		// 构建过滤参数：只有请求显式提供时才覆盖配置
+		// （与 converter.resolveUserConfig 的「未指定 → 走配置」约定配套）
+		const convertOptions = { guestId: guests.guestIdFrom(req) };
+		if (nodeFilter !== undefined) {
+			convertOptions.nodeFilters = {
+				hideDomestic: nodeFilter === 'hideDomestic',
+				hideInternational: nodeFilter === 'hideInternational',
+			};
+		}
+		if (Array.isArray(excludeKeywords)) convertOptions.excludeKeywords = excludeKeywords;
 
 		// 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价
-		const srcDns = sources.map(extractClashDns).find(Boolean);
-		// guestId 必须带上：过滤开关与分组策略都来自「本请求对应的那份配置」
-		const convertOptions = { nodeFilters, excludeKeywords, guestId: guests.guestIdFrom(req) };
+		const srcDns = sources.map((t, i) => extractClashDns(t, decodedSources[i])).find(Boolean);
 		if (srcDns) convertOptions.dns = srcDns;
 
-		clog.debug('开始转换', { proxies: proxies.length, nodeFilters, dns: srcDns ? '有' : '无' });
+		clog.debug('开始转换', {
+			proxies: proxies.length,
+			nodeFilters: convertOptions.nodeFilters || '(配置)',
+			dns: srcDns ? '有' : '无',
+		});
 
 		const result = convertToClash(proxies, convertOptions);
 

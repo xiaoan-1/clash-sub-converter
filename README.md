@@ -19,8 +19,8 @@
 
 ### 环境要求
 
-- Node.js ≥ 18
-- npm ≥ 9
+- Node.js ≥ 18（代码依赖内置 `fetch` 与 `AbortSignal.timeout`）
+- pnpm ≥ 8（本项目统一用 pnpm，`pnpm-lock.yaml` 已纳入版本控制）
 
 ### 安装
 
@@ -29,17 +29,17 @@ git clone https://github.com/xiaoan-1/clash-sub-converter.git
 
 cd clash-sub-converter
 
-npm install
+pnpm install
 ```
 
 ### 进程管理
 
 ```bash
-npm start        # 启动
-npm run restart  # 重启
-npm run stop     # 停止
-npm run log      # 查看日志
-npm run status   # 状态
+pnpm start        # 启动
+pnpm run restart  # 重启
+pnpm run stop     # 停止
+pnpm run log      # 查看日志
+pnpm run status   # 状态
 ```
 
 启动后终端会打印访问地址，浏览器打开即可进入使用说明页与配置界面。
@@ -53,14 +53,38 @@ npm run status   # 状态
 > 若订阅转换正常、但导入 OpenClash 后**节点全部无法使用**，多半是客户端 DNS 问题
 > （而非本项目）—— 见 [docs/OpenClash-DNS排查.md](docs/OpenClash-DNS排查.md)。
 
-### 测试（npm test）
+### 运行限制与安全开关
+
+以下环境变量都可选，不设时使用括号内的默认值：
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `HOST` | `0.0.0.0` | 监听地址。只在 nginx 后面时建议改 `127.0.0.1` |
+| `PORT` | `25500` | 监听端口 |
+| `BASE_PATH` | 空 | 子路径部署，例如 `/clash` |
+| `TRUST_PROXY` | 关闭 | 反向代理下必须设置（如 `loopback`），否则所有访客算同一个 IP |
+| `ALLOW_PRIVATE_URL` | 关闭 | 允许订阅地址指向内网 / 回环。默认禁止（SSRF 防护），仅在本机订阅场景才打开 |
+| `MAX_SUB_URLS` | `10` | 单次请求最多接受的订阅份数 |
+| `SUB_TOTAL_TIMEOUT_MS` | `60000` | 单次请求拉取全部订阅的总耗时预算，超出的剩余订阅直接判失败 |
+| `MAX_SUB_BYTES` | `32MB` | 单份订阅正文体积上限，超限返回 400 |
+| `MAX_CONCURRENT_CONVERTS` | `4` | 同时进行的转换请求数，超出返回 503（`Retry-After: 5`） |
+| `MAX_GUESTS` | `1000` | 访客配置文件数量上限 |
+| `BODY_LIMIT` | `10mb` | 请求体上限（粘贴订阅内容时用） |
+| `LOG_LEVEL` / `LOG_CONSOLE_LEVEL` | `debug` / `info` | 写盘与控制台的日志级别 |
+| `LOG_MAX_BYTES` / `LOG_MAX_FILES` | `5MB` / `3` | 日志轮转阈值与保留的历史份数 |
+
+> **SSRF 防护**：订阅地址只允许 `http` / `https`，且会拒绝回环、私有网段、
+> link-local（含云元数据 `169.254.169.254`）以及 IPv4-mapped IPv6 等写法。
+> 重定向会逐跳重新校验，域名还会在解析后复查一次解析结果。
+
+### 测试（pnpm test）
 
 生成的配置存在一些**只有内核才能发现的语义约束**，例如分组循环引用、
 规则指向已关闭的分组 —— 这两类问题都会让 mihomo 直接拒绝加载整份配置，
 而从 YAML 上看不出任何异常。因此测试直接交给真实内核判定：
 
 ```bash
-npm test
+pnpm test
 ```
 
 首次运行会按当前平台/架构自动下载 mihomo 到 `tools/`（约 23MB，已 gitignore），

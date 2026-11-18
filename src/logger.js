@@ -49,8 +49,15 @@ const CONSOLE_LEVEL_NAME = pickLevelName(process.env.LOG_CONSOLE_LEVEL, 'info');
 const FILE_LEVEL = LEVELS[FILE_LEVEL_NAME];
 const CONSOLE_LEVEL = LEVELS[CONSOLE_LEVEL_NAME];
 
-/** 单个日志文件体积上限，超出后转存为 .1（只保留一份历史） */
+/** 单个日志文件体积上限，超出后轮转 */
 const MAX_BYTES = Number(process.env.LOG_MAX_BYTES) || 5 * 1024 * 1024;
+
+/**
+ * 保留的历史文件份数（app.log.1 … app.log.N）。
+ * 只留一份时，「最近两次溢出」之间的问题现场很容易被下一次轮转冲掉；
+ * 默认 3 份，可用 LOG_MAX_FILES 调整（设 1 即回到单份历史）。
+ */
+const MAX_FILES = Number(process.env.LOG_MAX_FILES) > 0 ? Number(process.env.LOG_MAX_FILES) : 3;
 
 /** 单个字段值的最大长度，防止把整份订阅正文写进日志 */
 const MAX_VALUE_LEN = 400;
@@ -334,6 +341,7 @@ class Logger {
 	 * @param {number} [options.fileLevel]  文件记录的最低级别（数值）
 	 * @param {number} [options.consoleLevel] 控制台输出的最低级别（数值）
 	 * @param {number} [options.maxBytes]   单文件体积上限
+	 * @param {number} [options.maxFiles]   保留的历史文件份数
 	 */
 	constructor(options = {}) {
 		this.logDir = options.logDir || LOG_DIR;
@@ -342,6 +350,7 @@ class Logger {
 		this.fileLevel = options.fileLevel ?? FILE_LEVEL;
 		this.consoleLevel = options.consoleLevel ?? CONSOLE_LEVEL;
 		this.maxBytes = options.maxBytes ?? MAX_BYTES;
+		this.maxFiles = Math.max(1, options.maxFiles ?? MAX_FILES);
 	}
 
 	/** 写盘是否已降级为「仅控制台」（供诊断/测试观察） */
@@ -402,7 +411,7 @@ class Logger {
 	}
 
 	/**
-	 * 超过上限就把当前文件改名为 .1（先删旧的，Windows 上 rename 不覆盖已存在文件）。
+	 * 超过上限就轮转：file.1/.2/….N 依次后移，最旧的丢弃。
 	 *
 	 * 用累计写入量判断，只有到阈值时才 statSync 一次 —— 早期实现每次写日志都
 	 * stat 一次，虽只 0.006ms，但在高频日志下也是无谓开销。
@@ -431,10 +440,19 @@ class Logger {
 		// 轮转前必须先关句柄：Windows 不允许 rename 被打开的文件，
 		// 且旧句柄指向的是改名后的 inode，继续写会写进 .1
 		this.#closeFd(file);
+
+		// 先删掉最旧的一份，再从后往前依次改名（从前往后会覆盖掉还没搬走的那份）
 		try {
-			fs.rmSync(`${file}.1`, { force: true });
+			fs.rmSync(`${file}.${this.maxFiles}`, { force: true });
 		} catch {
 			/* 忽略 */
+		}
+		for (let i = this.maxFiles - 1; i >= 1; i--) {
+			try {
+				fs.renameSync(`${file}.${i}`, `${file}.${i + 1}`);
+			} catch {
+				/* 该份不存在，跳过 */
+			}
 		}
 		try {
 			fs.renameSync(file, `${file}.1`);

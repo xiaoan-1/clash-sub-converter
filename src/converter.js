@@ -4,8 +4,9 @@ const {
 	isDomestic,
 	normalizeExcludeKeywords,
 	filterByExcludeKeywords,
+	BUILTIN_GROUP_NAMES,
 } = require('./proxy-groups');
-const { ruleManager } = require('./rule-manager');
+const { ruleManager, ruleTargetOf } = require('./rule-manager');
 const { readConfig } = require('./user/user-config');
 const logger = require('./logger');
 
@@ -46,9 +47,33 @@ function resolveUserConfig(options = {}) {
 			Array.isArray(options.userGroups) && options.userGroups.length
 				? options.userGroups
 				: userConfig?.groups || [],
-		nodeFilters: options.nodeFilters || userConfig?.nodeFilters || {},
-		excludeKeywords: options.excludeKeywords || userConfig?.excludeKeywords || [],
+		// nodeFilters / excludeKeywords 用「是否传了」判断，不能用真值判断：
+		// `{}`（两个开关都关）与 `[]`（清空关键词）都是调用方的明确意图，
+		// 而 `||` 会把它们当成「未指定」而回退到配置，导致
+		// 「请求里要求全部节点 / 不排除关键词」被配置里的默认值覆盖。
+		nodeFilters:
+			options.nodeFilters && typeof options.nodeFilters === 'object'
+				? options.nodeFilters
+				: userConfig?.nodeFilters || {},
+		excludeKeywords: Array.isArray(options.excludeKeywords)
+			? options.excludeKeywords
+			: userConfig?.excludeKeywords || [],
 	};
+}
+
+/**
+ * 本次实际可能生成的分组名（内置分组 + 配置里的分组 + 规则文件默认名）。
+ *
+ * 节点与这些名字同名时会被内核解析成分组，节点永远选不中，
+ * 因此提前收集起来交给 dedupeAndRenameReserved。
+ */
+function reservedGroupNames(userGroups) {
+	const names = new Set(BUILTIN_GROUP_NAMES);
+	for (const g of userGroups || []) {
+		if (g && g.name) names.add(String(g.name));
+	}
+	for (const rc of ruleManager.getAll()) names.add(rc.name);
+	return [...names];
 }
 
 /**
@@ -60,9 +85,10 @@ function resolveUserConfig(options = {}) {
  * @param {Array} proxies
  * @param {Object} nodeFilters - { hideDomestic, hideInternational }
  * @param {Array} excludeKeywords
+ * @param {string[]} reservedNames - 节点不能与之同名的分组名
  * @returns {Array} 过滤后的节点
  */
-function applyNodeFilters(proxies, nodeFilters = {}, excludeKeywords = []) {
+function applyNodeFilters(proxies, nodeFilters = {}, excludeKeywords = [], reservedNames = []) {
 	const { hideDomestic = false, hideInternational = false } = nodeFilters;
 
 	// 0. 关键词排除（空串会命中所有节点，由 filterByExcludeKeywords 内部剔除）
@@ -126,7 +152,7 @@ function applyNodeFilters(proxies, nodeFilters = {}, excludeKeywords = []) {
 		);
 	}
 
-	return dedupeAndRenameReserved(activeProxies);
+	return dedupeAndRenameReserved(activeProxies, reservedNames);
 }
 
 /** 内核内置策略名：节点不能与之同名 */
@@ -149,12 +175,14 @@ const RESERVED_PROXY_NAMES = new Set(['DIRECT', 'REJECT', 'PASS', 'GLOBAL']);
 function filterRulesByExistingTargets(rules, proxyGroups) {
 	const valid = new Set([...proxyGroups.map(g => g.name), ...RESERVED_PROXY_NAMES]);
 
-	// 规则里可能用 no-resolve 之类的修饰段，target 取最后一个逗号后的内容
+	// 出口由 ruleTargetOf 取（会跳过 no-resolve / src 这类修饰段），
+	// 不能简单取最后一个逗号后的内容 —— 那对
+	// `IP-CIDR,10.0.0.0/8,DIRECT,no-resolve` 会得出 no-resolve。
 	const dropped = [];
 	const kept = rules.filter(rule => {
 		const text = String(rule);
-		const target = text.slice(text.lastIndexOf(',') + 1).trim();
-		// 无逗号（如 MATCH,🐟 漏网之鱼 一定带逗号）或 target 合法 → 保留
+		const target = ruleTargetOf(text);
+		// 判定不出出口（如末段是 no-resolve 的无出口规则）→ 保留
 		if (!target || valid.has(target)) return true;
 		dropped.push(`${text} → ${target}`);
 		return false;
@@ -172,8 +200,8 @@ function filterRulesByExistingTargets(rules, proxyGroups) {
 /**
  * 处理两类会让 mihomo 报错或让节点「选不中」的命名问题。
  *
- * 1. 与内置策略同名（`DIRECT` / `REJECT` …）
- *    候选列表里会同时出现内置策略与这个节点，内核一律解析成内置策略，
+ * 1. 与内置策略 / 分组同名（`DIRECT` / `REJECT` / `🚀 节点选择` …）
+ *    候选列表里会同时出现分组与这个节点，内核一律解析成分组/内置策略，
  *    于是该节点永远选不中，而配置看起来完全正常 —— 极难排查。
  *    重命名成 `DIRECT (节点)` 即可区分。
  *
@@ -183,9 +211,11 @@ function filterRulesByExistingTargets(rules, proxyGroups) {
  *    不经过那里，所以这里再兜一次，避免漏网。
  *
  * @param {Array} proxies
+ * @param {string[]} extraReserved 本次实际会生成的分组名（节点不能与之同名）
  * @returns {Array} 处理后的节点（原地修改 name）
  */
-function dedupeAndRenameReserved(proxies) {
+function dedupeAndRenameReserved(proxies, extraReserved = []) {
+	const reserved = new Set(extraReserved.map(String));
 	const seen = new Set();
 	const renamed = [];
 	const dropped = [];
@@ -194,7 +224,8 @@ function dedupeAndRenameReserved(proxies) {
 		let name = String(p.name || '').trim();
 		if (!name) return true; // 无名节点交给分组阶段兜底，不在这里丢
 
-		if (RESERVED_PROXY_NAMES.has(name.toUpperCase())) {
+		// 内置策略大小写不敏感；分组名是中文/emoji，精确匹配
+		if (reserved.has(name) || RESERVED_PROXY_NAMES.has(name.toUpperCase())) {
 			const next = `${name} (节点)`;
 			if (!renamed.some(r => r.from === name)) renamed.push({ from: name, to: next });
 			name = next;
@@ -263,7 +294,12 @@ function convertToClash(proxies, options = {}) {
 		dns: dns ? '透传源订阅 dns' : '无',
 	});
 
-	const activeProxies = applyNodeFilters(proxies, nodeFilters, excludeKeywords);
+	const activeProxies = applyNodeFilters(
+		proxies,
+		nodeFilters,
+		excludeKeywords,
+		reservedGroupNames(userGroups),
+	);
 
 	// 生成代理分组。
 	// activeProxies 已按用户配置过滤过，此处不再重复传 nodeFilters/excludeKeywords：
@@ -383,21 +419,10 @@ function convertToClash(proxies, options = {}) {
  */
 function surgeProxyLine(proxy) {
 	switch (proxy.type) {
-		case 'vmess': {
-			let line = `${proxy.name} = vmess, ${proxy.server}, ${proxy.port}, username=${proxy.uuid}`;
-			if (proxy.tls) line += ', tls=true';
-			if (proxy.sni) line += ', sni=' + proxy.sni;
-			return line;
-		}
-		case 'vless': {
-			let line = `${proxy.name} = vless, ${proxy.server}, ${proxy.port}, username=${proxy.uuid}`;
-			if (proxy.tls) line += ', tls=true';
-			// VLESS 内部用 servername（mihomo 字段名），Surge 用 sni
-			if (proxy.servername || proxy.sni) line += ', sni=' + (proxy.servername || proxy.sni);
-			return line;
-		}
 		case 'ss':
-			return `${proxy.name} = custom, ${proxy.server}, ${proxy.port}, ${proxy.cipher}, ${proxy.password}, https://github.com/crossutility/Quantumult-X/raw/master/Server-Churn-US.snippet`;
+			// Surge 原生 ss 语法；早期用 custom + 外部 snippet，既依赖第三方 URL
+			// 又与新版本 Surge 不兼容，等于生成一份跑不起来的配置。
+			return `${proxy.name} = ss, ${proxy.server}, ${proxy.port}, encrypt-method=${proxy.cipher}, password=${proxy.password}`;
 		case 'trojan': {
 			let line = `${proxy.name} = trojan, ${proxy.server}, ${proxy.port}, password=${proxy.password}`;
 			if (proxy.sni) line += ', sni=' + proxy.sni;
@@ -405,12 +430,6 @@ function surgeProxyLine(proxy) {
 		}
 		case 'hysteria2': {
 			let line = `${proxy.name} = hysteria2, ${proxy.server}, ${proxy.port}, password=${proxy.password || proxy.auth || ''}`;
-			if (proxy.sni) line += ', sni=' + proxy.sni;
-			if (proxy['skip-cert-verify']) line += ', skip-cert-verify=true';
-			return line;
-		}
-		case 'tuic': {
-			let line = `${proxy.name} = tuic, ${proxy.server}, ${proxy.port}, uuid=${proxy.uuid}, password=${proxy.password || proxy.token || ''}`;
 			if (proxy.sni) line += ', sni=' + proxy.sni;
 			if (proxy['skip-cert-verify']) line += ', skip-cert-verify=true';
 			return line;
@@ -436,10 +455,11 @@ function surgeProxyLine(proxy) {
 			if (proxy.sni) line += ', sni=' + proxy.sni;
 			return line;
 		}
-		case 'wireguard':
-			return `${proxy.name} = wireguard, ${proxy.server}, ${proxy.port}, public-key=${proxy['public-key'] || ''}, private-key=${proxy['private-key'] || ''}, self-ip=${proxy.ip || ''}`;
 		default:
-			// ssr / anytls / hysteria / shadowquic 等 Surge 不支持的协议，静默跳过
+			// 只输出语法确定的协议。vmess / vless / ssr / anytls / hysteria(v1) /
+			// shadowquic 是 Surge 不支持的；tuic / wireguard 在 Surge 里的写法与
+			// Clash 字段并不一一对应（WireGuard 是 section 引用语法），
+			// 硬套会生成一份 Surge 加载不了的配置 —— 宁可少节点，也不给坏结果。
 			return null;
 	}
 }
@@ -453,7 +473,12 @@ function surgeProxyLine(proxy) {
  */
 function convertToSurge(proxies, options = {}) {
 	const { userGroups, nodeFilters, excludeKeywords } = resolveUserConfig(options);
-	const activeProxies = applyNodeFilters(proxies, nodeFilters, excludeKeywords);
+	const activeProxies = applyNodeFilters(
+		proxies,
+		nodeFilters,
+		excludeKeywords,
+		reservedGroupNames(userGroups),
+	);
 
 	const lines = [];
 	lines.push('#!name = ' + (options.name || 'Clash 订阅'));
@@ -470,11 +495,23 @@ function convertToSurge(proxies, options = {}) {
 	// 只收集真正写入 [Proxy] 的节点：Surge 不支持的协议被跳过，
 	// 若分组仍引用它们会产生悬空引用，Surge 会因未知代理名报错。
 	const surgeProxies = [];
+	const skippedTypes = {};
 	for (const proxy of activeProxies) {
 		const line = surgeProxyLine(proxy);
-		if (!line) continue;
+		if (!line) {
+			skippedTypes[proxy.type] = (skippedTypes[proxy.type] || 0) + 1;
+			continue;
+		}
 		lines.push(line);
 		surgeProxies.push(proxy);
+	}
+	if (Object.keys(skippedTypes).length) {
+		// 不静默：用户看到「节点少了一大半」时，日志里能直接找到原因
+		log.warn('Surge 不支持的协议已跳过', {
+			skipped: skippedTypes,
+			kept: surgeProxies.length,
+			total: activeProxies.length,
+		});
 	}
 	lines.push('');
 
@@ -496,7 +533,13 @@ function convertToSurge(proxies, options = {}) {
 	lines.push('');
 
 	lines.push('[Rule]');
-	const rules = ruleManager.generateRules(options.ruleOptions || {});
+	const rawRules = ruleManager.generateRules(options.ruleOptions || {});
+	// 与 Clash 输出同一套收口：规则不能指向未生成的分组，
+	// 否则 Surge 会因为未知代理名而报错（等同于内核拒绝加载）。
+	const rules = filterRulesByExistingTargets(rawRules, groups).map(rule =>
+		// Surge 的兜底规则是 FINAL，MATCH 是 Clash 的写法
+		/^MATCH,/i.test(rule) ? rule.replace(/^MATCH,/i, 'FINAL,') : rule,
+	);
 	for (const rule of rules) {
 		lines.push(rule);
 	}

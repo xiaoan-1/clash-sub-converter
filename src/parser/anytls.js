@@ -7,14 +7,14 @@ const { parseNodeUrl } = require('./utils');
 function parseAnyTLS(link) {
 	const parsed = parseNodeUrl(link);
 	if (!parsed) return null;
-	const { url, name } = parsed;
+	const { url, name, server, username } = parsed;
 
 	const proxy = {
 		name,
 		type: 'anytls',
-		server: url.hostname,
+		server,
 		port: parseInt(url.port),
-		password: url.username,
+		password: username,
 		udp: true,
 	};
 
