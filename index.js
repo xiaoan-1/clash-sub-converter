@@ -45,13 +45,22 @@ app.set('trust proxy', TRUST_PROXY);
 
 const bootLog = logger.create('app');
 
-// 获取本机所有局域网 IPv4（可能有不止一张网卡：有线 + 无线 + Docker/虚拟机虚拟网卡）
-function getLocalIPs() {
+/**
+ * 列出本机所有 IPv4 地址（遍历全部网卡，不做任何筛选 / 排序）。
+ *
+ * 之所以不取「第一张网卡」：os.networkInterfaces() 的顺序由系统决定，
+ * 同一台机器上第一张可能是 172.30 这类虚拟网卡，于是启动日志里的
+ * 示例地址时对时错。全列出来最不容易出错 —— 哪个能用一目了然。
+ *
+ * @returns {Array<{name:string,address:string,internal:boolean}>}
+ */
+function listLocalAddresses() {
 	const out = [];
 	const nets = os.networkInterfaces();
 	for (const name of Object.keys(nets)) {
 		for (const net of nets[name] || []) {
-			if (net.family === 'IPv4' && !net.internal) out.push(net.address);
+			if (net.family !== 'IPv4') continue;
+			out.push({ name, address: net.address, internal: !!net.internal });
 		}
 	}
 	return out;
@@ -269,23 +278,33 @@ process.on('uncaughtException', err => {
 function onListening() {
 	// 部署子路径时把前缀一并打出来，免得照着终端里的地址去填 OpenClash 却是 404
 	const p = BASE_PATH;
-	const ips = getLocalIPs();
-	// 示例地址用第一张网卡的 IP；仅监听指定地址时就用该地址
-	const base = `http://${HOST === '0.0.0.0' ? ips[0] || '127.0.0.1' : HOST}:${PORT}${p}`;
+	const addrs = listLocalAddresses();
+	// 本机地址永远可用，作为主示例 —— 之前取「第一张网卡」，
+	// 而这台机器的第一张是 172.30 的虚拟网卡，示例地址于是变成了一个
+	// 其他设备连不上的地址（看起来还像是公网 IP）。
+	const localBase = `http://127.0.0.1:${PORT}${p}`;
 	const guestCount = guests.listGuestIds().length;
 
 	console.log(`\n🚀 Clash 订阅转换器已启动（端口 ${PORT}）\n`);
-	console.log(`   使用说明页  ${base}/`);
-	console.log(`   配置界面    ${base}/cfg`);
-	console.log(`   订阅转换    ${base}/sub?target=clash&url=<订阅链接>`);
+	console.log(`   使用说明页  ${localBase}/`);
+	console.log(`   配置界面    ${localBase}/cfg`);
+	console.log(`   订阅转换    ${localBase}/sub?target=clash&url=<订阅链接>`);
 
-	// 监听范围：想给手机 / 其他设备填地址时看这一行
+	// 监听范围：想给手机 / 其他设备填地址时看这一段
 	console.log('');
-	console.log(
-		HOST === '0.0.0.0'
-			? `   监听 0.0.0.0:${PORT}${p}（本机 127.0.0.1 / 网卡 ${ips.join(' / ') || '无'}）`
-			: `   监听 ${HOST}:${PORT}${p}（未绑 0.0.0.0，局域网其他设备访问不到）`,
-	);
+	if (HOST !== '0.0.0.0') {
+		console.log(
+			`   监听 ${HOST}:${PORT}${p}（未绑 0.0.0.0，局域网其他设备访问不到；需要时设 HOST=0.0.0.0）`,
+		);
+	} else if (!addrs.length) {
+		console.log(`   监听 0.0.0.0:${PORT}${p}（未发现任何网卡地址）`);
+	} else {
+		console.log(`   监听 0.0.0.0:${PORT}${p}，可用地址：`);
+		for (const a of addrs) {
+			const url = `http://${a.address}:${PORT}${p}`;
+			console.log(`     ${url.padEnd(34)}（${a.name}${a.internal ? '，本机' : ''}）`);
+		}
+	}
 
 	// 所有访问者（含本机）都各写自己的访客配置；基准靠改 config/default.json
 	console.log(`   访客 ${guestCount} 个文件 · 反向代理 ${TRUST_PROXY ? '已启用' : '未启用'}`);
@@ -300,7 +319,9 @@ function onListening() {
 	bootLog.info('服务已启动', {
 		port: PORT,
 		host: HOST,
-		url: base,
+		url: localBase,
+		// 全部网卡地址（含网卡名），排查「手机连不上」时先看它
+		ips: addrs.length ? addrs.map(a => `${a.address}(${a.name})`) : undefined,
 		pid: process.pid,
 		node: process.version,
 		env: process.env.NODE_ENV || 'development',
