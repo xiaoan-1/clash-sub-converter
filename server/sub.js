@@ -48,10 +48,15 @@ router.get('/', async (req, res) => {
 	});
 
 	try {
-		const { target = 'clash', url, include, exclude, ua } = req.query;
+		const { target = 'clash', url, include, exclude, ua, config: templateUrl } = req.query;
 
 		const scope = guests.scopeOf(req);
 		const client = scope.ip;
+
+		// OpenClash 走转换时必定带 config=<模板地址>；本服务不套用模板，忽略即可
+		if (templateUrl !== undefined) {
+			log.debug('已忽略订阅转换模板参数', { 'config-empty': !templateUrl });
+		}
 
 		// 本访客生效配置：UA / 过滤 / 分组 / 已保存的订阅地址都来自这一份
 		const guestCfg = readConfig(scope.guest);
@@ -249,30 +254,42 @@ router.get('/', async (req, res) => {
 			log.warn('订阅源未下发流量 / 到期信息（该机场不支持），客户端订阅详情将为空白');
 		}
 
-		const ruleOptions = parseRuleOptions(include, exclude);
-		log.debug('规则组开关', { ruleOptions });
+		// 只有请求带了 include/exclude 才覆盖配置里的分组开关；
+		// parseRuleOptions(undefined, undefined) 会返回「全部启用」，直接传会覆盖用户配置
+		const hasRuleFilter = Boolean(include || exclude);
+		const ruleOptions = hasRuleFilter ? parseRuleOptions(include, exclude) : undefined;
+		log.debug('规则组开关', {
+			'from-query': hasRuleFilter,
+			enabled: ruleOptions
+				? Object.keys(ruleOptions).filter(k => ruleOptions[k])
+				: '(按配置)',
+		});
 
 		const convertTimer = logger.timer();
 		let output;
 		let outType;
+		// 分组数取自转换器的 summary（需排除末尾 2 个系统条目）
+		let groupCount;
 
 		if (target.startsWith('surge')) {
 			output = convertToSurge(proxies, { ruleOptions, guestId: scope.guest });
 			outType = 'text/plain';
 		} else {
-			// 源订阅若自带 Clash DNS 配置则透传，保证与直接导入等价。
-			// 必须扫全部订阅再取第一个命中的：早期只取 metas[0]，
-			// 于是「第一份是 URI 列表、第二份是 Clash YAML」时 dns 会静默丢失，
-			// 与 /api/convert（sources.map(extractClashDns).find(Boolean)）行为不一致。
+			// 源订阅自带 Clash DNS 则透传，保证与直接导入等价
 			const srcDns = sourceTexts
 				.map((t, i) => extractClashDns(t, decodedSources[i]))
 				.find(Boolean);
-			// guestId 决定用哪份过滤开关 / 分组策略
 			const convertOptions = { ruleOptions, guestId: scope.guest };
 			if (srcDns) convertOptions.dns = srcDns;
 			log.debug('源订阅 DNS 透传', { dns: srcDns ? '有' : '无' });
-			output = convertToClash(proxies, convertOptions).yaml;
+			const result = convertToClash(proxies, convertOptions);
+			output = result.yaml;
+			groupCount = result.summary.groups.filter(g => g.type !== 'system').length;
 			outType = 'text/yaml';
+		}
+
+		if (hasRuleFilter) {
+			log.info('按 include/exclude 生成的分组', { target, groups: groupCount });
 		}
 
 		log.info('转换完成，准备响应', {

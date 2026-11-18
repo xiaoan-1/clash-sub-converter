@@ -33,18 +33,76 @@
 					</button>
 				</div>
 
-				<h3 style="margin-top: 16px">客户端订阅地址</h3>
+				<h3 style="margin-top: 20px">接入代理软件</h3>
 				<div class="kw-hint">
-					直接填进代理软件的「订阅地址」（不是「订阅转换服务地址」）
+					下面两种方式二选一，地址是同一个，区别只在客户端把它填到哪个输入框。
 				</div>
-				<div class="sub-endpoint">
-					<code id="subEndpoint">/sub</code>
-					<button class="btn btn-outline btn-sm" onclick="copySubEndpoint()">复制</button>
+
+				<div class="connect-mode">
+					<div class="connect-title">
+						方式一：直接当「订阅地址」<span class="connect-tag">推荐</span>
+					</div>
+					<div class="kw-hint">
+						先保存上面的订阅地址，再把下面这条填进客户端的「订阅地址」。
+						之后自动更新由本服务完成，不需要再打开网页。
+					</div>
+					<div class="sub-endpoint">
+						<code id="subEndpoint">/sub</code>
+						<button class="btn btn-outline btn-sm" onclick="copyEndpoint()">
+							复制
+						</button>
+					</div>
 				</div>
-				<div class="kw-hint" style="margin-top: 8px">
-					⚠️ 订阅按「请求来源 IP」区分：保存与拉取必须来自同一出口 IP（同一台机器，或同一
-					NAT 下）。部署在 Nginx / Caddy 后面时需设置
-					TRUST_PROXY，否则所有设备会被算成同一个人。
+
+				<div class="connect-mode" style="margin-top: 14px">
+					<div class="connect-title">方式二：OpenClash「在线订阅转换」</div>
+					<div class="kw-hint">
+						本方式是让 OpenClash 把机场订阅交给我们转换。要填四个地方，缺一不可：
+					</div>
+					<ol class="connect-steps">
+						<li>
+							<strong>勾选「在线订阅转换」</strong>
+							—— 不勾就不会拼接参数，OpenClash 会把服务地址当普通订阅直接下载
+						</li>
+						<li>
+							<strong>订阅转换服务地址</strong> —— 填下面这条，<b>只填到 /sub</b>，
+							不要自己加 <code>?target=...</code> 之类参数
+						</li>
+						<li>
+							<strong>订阅地址</strong> —— 填机场给你的原始订阅链接（ OpenClash
+							会自动追加成 <code>?url=...</code>）
+						</li>
+						<li>
+							<strong>订阅转换模板</strong> ——
+							<b>必须选一个具体的模板</b>（选哪个都行）。
+							本服务自带完整分组与分流规则，<b>会忽略模板内容</b>；
+							但这个字段不能空着，否则转换根本不会发生：
+							<div class="connect-warn" style="margin-top: 6px">
+								⚠️ 选了「<b>自定义模板</b>」却把地址<b>留空</b> = 完全不会转换。<br />
+								OpenClash 的逻辑是「模板为空 → 直接下载机场原始订阅」，
+								连转换服务都不会请求，你看到的仍是机场原配置（分组是机场自己的名字）。
+								<br />解决：改选任意一个内置模板；或选「自定义模板」并填<b>任意一个非空地址</b>（内容会被忽略）。
+							</div>
+						</li>
+					</ol>
+					<div class="sub-endpoint">
+						<code id="subEndpoint2">/sub</code>
+						<button class="btn btn-outline btn-sm" onclick="copyEndpoint()">
+							复制
+						</button>
+					</div>
+					<div class="connect-warn">
+						⚠️ OpenClash 里这个字段默认填的是 <code>api.asailor.org</code>， 那是<b
+							>第三方公共服务</b
+						>
+						—— 订阅地址会连同 token 一起发给它。 请务必改成下面这条你自己的地址。
+					</div>
+				</div>
+
+				<div class="kw-hint" style="margin-top: 12px">
+					⚠️ 方式一按「请求来源 IP」区分订阅：保存与拉取必须来自同一出口 IP。 路由器上的
+					OpenClash 与电脑不是同一个 IP，因此路由器场景请用方式二。 部署在 Nginx / Caddy
+					后面时需设置 TRUST_PROXY。
 				</div>
 			</div>
 

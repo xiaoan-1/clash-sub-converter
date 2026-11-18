@@ -178,8 +178,11 @@ function subEndpointUrl() {
 }
 
 function renderSubEndpoint() {
-	var el = document.getElementById('subEndpoint');
-	if (el) el.textContent = subEndpointUrl();
+	var url = subEndpointUrl();
+	['subEndpoint', 'subEndpoint2'].forEach(function (id) {
+		var el = document.getElementById(id);
+		if (el) el.textContent = url;
+	});
 }
 
 function setSubSaveState(state, msg) {
@@ -215,7 +218,7 @@ function saveSubscriptions() {
 	});
 }
 
-function copySubEndpoint() {
+function copyEndpoint() {
 	var text = subEndpointUrl();
 	if (navigator.clipboard && navigator.clipboard.writeText) {
 		navigator.clipboard.writeText(text).then(

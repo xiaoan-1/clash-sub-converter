@@ -256,6 +256,62 @@ function dedupeAndRenameReserved(proxies, extraReserved = []) {
 }
 
 /**
+ * 把 OpenClash 的 include/exclude 同步到分组开关。
+ * 否则被排除的规则组会留下「没有规则指向」的孤儿分组。
+ * 只在调用方传了 ruleOptions 时生效，避免覆盖配置页里的分组开关。
+ */
+function applyRuleOptionsToGroups(userGroups, ruleOptions) {
+	if (!ruleOptions || !Object.keys(ruleOptions).length) return userGroups;
+	return userGroups.map(g => {
+		if (!g || !g.ruleId) return g; // 内置分组不参与
+		const on = ruleOptions[g.ruleId];
+		if (on === undefined) return g; // 不在本次覆盖范围内
+		return { ...g, enabled: on !== false };
+	});
+}
+
+/**
+ * 清理透传的源订阅 dns。
+ *
+ * 必须移除 fallback-filter.geosite：它要 GeoSite.dat，设备上没有时
+ * OpenClash 的内核校验（mihomo -t）会失败，然后静默回退到下载原始订阅，
+ * 表现为「填了转换地址却没转换」。该字段在 mihomo 里也已被 nameserver-policy 取代。
+ * 其余 DNS 设置原样保留。
+ */
+function sanitizeClashDns(dns) {
+	if (!dns || typeof dns !== 'object' || Array.isArray(dns)) return null;
+
+	const out = { ...dns };
+	const removed = [];
+
+	const ff = out['fallback-filter'];
+	if (ff && typeof ff === 'object' && !Array.isArray(ff)) {
+		const next = { ...ff };
+		for (const key of Object.keys(next)) {
+			if (/^geosite/i.test(key)) {
+				delete next[key];
+				removed.push(`fallback-filter.${key}`);
+			}
+		}
+		if (Object.keys(next).length) out['fallback-filter'] = next;
+		else delete out['fallback-filter'];
+	}
+
+	for (const key of Object.keys(out)) {
+		if (/^geosite/i.test(key)) {
+			delete out[key];
+			removed.push(key);
+		}
+	}
+
+	if (removed.length) {
+		log.warn('源订阅 DNS 含依赖 GeoSite 的字段，已移除', { removed });
+	}
+
+	return Object.keys(out).length ? out : null;
+}
+
+/**
  * 将解析后的代理节点转换为完整的 Clash YAML 配置
  * @param {Array} proxies - 代理节点数组
  * @param {Object} options - 配置选项
@@ -301,10 +357,13 @@ function convertToClash(proxies, options = {}) {
 		reservedGroupNames(userGroups),
 	);
 
-	// 生成代理分组。
-	// activeProxies 已按用户配置过滤过，此处不再重复传 nodeFilters/excludeKeywords：
-	// 过滤只保留 applyNodeFilters 一处，避免两个地方各过滤一遍而悄悄分叉。
-	const proxyGroups = generateProxyGroups(activeProxies, { ...proxyGroupOptions, userGroups });
+	// 生成代理分组
+	// 先把 include/exclude 合并进分组开关，否则关掉的规则组会留下孤儿分组
+	const groupsInUse = applyRuleOptionsToGroups(userGroups, ruleOptions);
+	const proxyGroups = generateProxyGroups(activeProxies, {
+		...proxyGroupOptions,
+		userGroups: groupsInUse,
+	});
 
 	// 生成规则。
 	//
@@ -333,9 +392,10 @@ function convertToClash(proxies, options = {}) {
 		config.secret = secret;
 	}
 
-	// DNS 配置
-	if (dns) {
-		config.dns = dns;
+	// DNS 配置：透传源订阅，但清掉会让内核校验失败的字段
+	const safeDns = sanitizeClashDns(dns);
+	if (safeDns) {
+		config.dns = safeDns;
 	}
 
 	// 代理节点
@@ -516,9 +576,10 @@ function convertToSurge(proxies, options = {}) {
 	lines.push('');
 
 	lines.push('[Proxy Group]');
+	// 与 convertToClash 一致：先合并 include/exclude，避免孤儿分组
 	const groups = generateProxyGroups(surgeProxies, {
 		...(options.proxyGroupOptions || {}),
-		userGroups,
+		userGroups: applyRuleOptionsToGroups(userGroups, options.ruleOptions),
 	});
 	for (const group of groups) {
 		const proxyList = group.proxies.join(', ');

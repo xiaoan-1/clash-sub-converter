@@ -163,6 +163,19 @@ router.use(guardWriteOrigin);
 // ===================== 路由 =====================
 
 /**
+ * subconverter 兼容的 /version。OpenClash 界面用它显示「后端版本」。
+ * 不带 CORS 的话 LuCI 页面（跨域）读不到响应体，仍会提示「未识别到后端版本」。
+ * 注册在限流之前：探测器不该被 503 掉。
+ */
+const APP_VERSION = require('./package.json').version;
+const VERSION_TEXT = `clash-sub-converter v${APP_VERSION} backend (subconverter-compatible)`;
+function sendVersion(req, res) {
+	res.setHeader('Access-Control-Allow-Origin', '*');
+	res.type('text/plain').send(VERSION_TEXT);
+}
+router.get(['/version', '/sub/version'], sendVersion);
+
+/**
  * 同时进行的转换请求上限。
  *
  * js-yaml 的解析是同步的：单个大订阅就能把事件循环占住几十毫秒，
@@ -229,6 +242,9 @@ if (BASE_PATH) {
 
 // 根路径部署时为 '/'，子路径部署时为 '/clash'
 app.use(BASE_PATH || '/', router);
+
+// 子路径部署时 router 只处理 /clash/version，而 OpenClash 会同时探测根路径的 /version
+app.get('/version', sendVersion);
 
 /**
  * 统一错误处理（必须放在所有路由之后，且四个参数缺一不可）。
